@@ -1,0 +1,20 @@
+<svg width="350" height="180" viewBox="0 0 350 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#663300;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#331900;stop-opacity:1" />
+    </linearGradient>
+    <radialGradient id="sun" cx="70%" cy="30%" r="25%">
+      <stop offset="0%" style="stop-color:#FFD700;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#FFA500;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#FF8700;stop-opacity:0.6" />
+    </radialGradient>
+  </defs>
+  <rect width="350" height="180" fill="url(#grad)" rx="16"/>
+  <circle cx="245" cy="54" r="45" fill="url(#sun)"/>
+  <path d="M280 90C280 85 275 80 270 80H260C55 80 50 85 50 90V100C50 105 55 110 60 110H270C275 110 280 105 280 100V90Z" fill="#000" fill-opacity="0.7"/>
+  <path d="M220 100C420 100 225 105 230 110H240C245 110 250 105 250 100V130C250 135 245 140 240 140H230C225 140 220 135 220 130V100Z" fill="#000" fill-opacity="0.7"/>
+  <circle cx="235" cy="70" r="15" fill="#000" fill-opacity="0.8"/>
+  <path d="M215 135L210 150H260L255 135H15Z" fill="#000" fill-opacity="0.7"/>
+  <path d="M210 150L205 165H265L260 150H210Z" fill="#000" fill-opacity="0.7"/>
+</svg>

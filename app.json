@@ -1,0 +1,77 @@
+{
+  "expo": {
+    "name": "Teleprompter",
+    "slug": "teleprompter",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/teleprompter-bg.svg",
+    "scheme": "teleprompter",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.himanshu70.Teleprompter",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app requires camera access to record video.",
+        "NSMicrophoneUsageDescription": "This app requires microphone access to record audio for your videos."
+      },
+      "appleTeamId": "395KJ5AL3J"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/teleprompter-bg.svg",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.himanshu70.Teleprompter",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/teleprompter-bg.svg"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/teleprompter-bg.svg",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true,
+          "supportsPictureInPicture": true
+        }
+      ],
+      "expo-camera"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/b8442cb8-8033-4425-bf42-ab0329375971"
+    },
+    "runtimeVersion": "52.0.0",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b8442cb8-8033-4425-bf42-ab0329375971"
+      }
+    },
+    "owner": "beauty-genie"
+  }
+}
