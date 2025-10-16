@@ -7,7 +7,6 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { FFmpegKit, ReturnCode } from 'ffmpeg-kit-react-native';
 import LottieView from "lottie-react-native";
 import React, { useEffect, useRef, useState } from "react";
 import { Alert, Dimensions, Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
@@ -29,6 +28,13 @@ import VideoTimeline from "../components/VideoEditor/VideoTimeline";
 // Video Processing
 import AudioProcessor, { AudioMixOptions, AudioTrack } from "../../utils/audioProcessor";
 import VideoProcessor from "../../utils/videoProcessor";
+
+// AWS S3 Integration
+import AppConfigManager from "../../config/appConfig";
+import AWSS3Service from "../../utils/awsS3Service";
+
+// Enhanced FFmpeg Service
+import FFmpegService from "../../utils/ffmpegService";
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -586,6 +592,7 @@ const PreviewVideoShoot = () => {
   useEffect(() => {
     loadVideoData();
     processVideoData();
+    initializeServices();
     
     // Auto-initialize trim to full video duration (same as clicking trim "Done" button)
     if (videoUri) {
@@ -594,6 +601,21 @@ const PreviewVideoShoot = () => {
       }, 1000); // Small delay to ensure video metadata is loaded
     }
   }, [videoUri]);
+
+  const initializeServices = async () => {
+    try {
+      // Initialize FFmpeg service
+      await FFmpegService.initialize();
+      
+      // Load AWS S3 configuration
+      await AppConfigManager.loadConfig();
+      await AWSS3Service.loadConfig();
+      
+      console.log('All services initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize services:', error);
+    }
+  };
 
   const initializeVideoTrim = async () => {
     const full = videoMetadata?.duration || player?.duration || 0;
@@ -713,31 +735,82 @@ const PreviewVideoShoot = () => {
     }
   };
 
-  const simulateUpload = async () => {
-    if (!flaggedForUpload) return;
+  const performAwsUpload = async () => {
+    if (!flaggedForUpload || !videoUri) return;
     
-    setUploadStatus('uploading');
-    
-    // Simulate upload process
-    setTimeout(async () => {
-      try {
-        const savedVideos = await AsyncStorage.getItem('saved_videos');
-        if (savedVideos) {
-          const videos = JSON.parse(savedVideos);
-          const updatedVideos = videos.map((video: any) => {
-            if (video.uri === videoUri) {
-              return { ...video, uploaded: true, uploadedAt: new Date().toISOString() };
-            }
-            return video;
-          });
-          await AsyncStorage.setItem('saved_videos', JSON.stringify(updatedVideos));
-          setUploadStatus('completed');
-        }
-      } catch (error) {
-        console.error('Error updating upload status:', error);
-        setUploadStatus('failed');
+    try {
+      // Check if AWS is configured
+      const isConfigured = AppConfigManager.isAwsConfigured();
+      if (!isConfigured) {
+        Alert.alert(
+          'AWS Not Configured',
+          'Please configure AWS S3 settings first. Go to Settings to add your AWS credentials.',
+          [{ text: 'OK' }]
+        );
+        return;
       }
-    }, 3000); // 3 second simulated upload
+
+      setUploadStatus('uploading');
+      
+      // Generate unique key for the video
+      const videoId = Date.now().toString();
+      const mode = route.params?.mode || '1min';
+      const s3Key = AWSS3Service.generateVideoKey(videoId, mode);
+      
+      // Update video status to uploading
+      await AWSS3Service.updateVideoUploadStatus(videoId, 'uploading');
+      
+      // Upload to S3 with progress tracking
+      const uploadResult = await AWSS3Service.uploadVideo(
+        videoUri,
+        s3Key,
+        (progress) => {
+          console.log(`Upload progress: ${progress.percentage}%`);
+          // You can update UI with progress here if needed
+        }
+      );
+      
+      if (uploadResult.success) {
+        // Update video status to completed
+        await AWSS3Service.updateVideoUploadStatus(
+          videoId,
+          'completed',
+          uploadResult.key,
+          uploadResult.url
+        );
+        
+        setUploadStatus('completed');
+        Alert.alert(
+          'Upload Successful',
+          'Video uploaded to AWS S3 successfully!',
+          [{ text: 'OK' }]
+        );
+      } else {
+        // Update video status to failed
+        await AWSS3Service.updateVideoUploadStatus(
+          videoId,
+          'failed',
+          undefined,
+          undefined,
+          uploadResult.error
+        );
+        
+        setUploadStatus('failed');
+        Alert.alert(
+          'Upload Failed',
+          `Failed to upload video: ${uploadResult.error}`,
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('AWS upload error:', error);
+      setUploadStatus('failed');
+      Alert.alert(
+        'Upload Error',
+        'An unexpected error occurred during upload. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   const handleApprove = async () => {
@@ -1110,47 +1183,23 @@ const PreviewVideoShoot = () => {
     try {
       console.log('Executing FFmpeg command:', command);
       
-      return new Promise((resolve, reject) => {
-        FFmpegKit.executeAsync(
-          command,
-          async (session) => {
-            try {
-              if (!session) {
-                console.error('FFmpeg session is null');
-                Alert.alert('Error', 'Video processing failed.');
-                reject(new Error('FFmpeg session is null'));
-                return;
-              }
-              const returnCode = await session.getReturnCode();
-              if (ReturnCode.isSuccess(returnCode)) {
-                Alert.alert('Success', successMessage);
-                console.log('FFmpeg command executed successfully');
-                resolve(true);
-              } else {
-                const code = returnCode?.getValue();
-                console.error('FFmpeg failed with return code:', code);
-                Alert.alert('Error', `Video processing failed (code ${code}).`);
-                reject(new Error(`FFmpeg failed with code ${code}`));
-              }
-            } catch (sessionError) {
-              console.error('Error in FFmpeg session callback:', sessionError);
-              Alert.alert('Error', 'Video processing failed.');
-              reject(sessionError);
-            }
-          },
-          (log) => {
-            try { console.log('FFmpeg log:', log?.getMessage?.()); } catch {}
-          },
-          (statistics) => {
-            try { console.log('FFmpeg statistics:', statistics); } catch {}
-          }
-        );
+      const result = await FFmpegService.executeCommand(command, (progress) => {
+        console.log('FFmpeg progress:', progress);
       });
       
+      if (result.success) {
+        Alert.alert('Success', successMessage);
+        console.log('FFmpeg command executed successfully');
+        return true;
+      } else {
+        console.error('FFmpeg failed:', result.error);
+        Alert.alert('Error', `Video processing failed: ${result.error}`);
+        return false;
+      }
     } catch (error) {
       console.error('FFmpeg execution error:', error);
       Alert.alert('Error', 'Video processing failed.');
-      return Promise.resolve(true);
+      return false;
     }
   };
 
@@ -1943,7 +1992,7 @@ const PreviewVideoShoot = () => {
                 <TouchableOpacity 
                   style={styles.uploadButton} 
                   onPress={() => {
-                    simulateUpload();
+                    performAwsUpload();
                   }}
                 >
                   <MaterialIcons name="cloud-upload" size={20} color="white" />

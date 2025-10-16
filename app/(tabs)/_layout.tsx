@@ -5,8 +5,8 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppColors } from '../../constants/Colors';
 import {
-  getResponsiveTabBarHeight,
-  responsiveFontSize
+    getResponsiveTabBarHeight,
+    responsiveFontSize
 } from '../../utils/scaling';
 
 export default function TabLayout() {

@@ -34,7 +34,15 @@ const HomeScreen = () => {
     <View style={styles.container}>
       {/* Header with line */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Home</Text>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>Home</Text>
+          <TouchableOpacity
+            style={styles.settingsButton}
+            onPress={() => router.push('/screens/SettingsScreen')}
+          >
+            <MaterialIcons name="settings" size={24} color={AppColors.white} />
+          </TouchableOpacity>
+        </View>
         <View style={styles.headerLine} />
       </View>
 
@@ -154,6 +162,13 @@ const styles = StyleSheet.create({
     paddingBottom: responsiveSpacing(20),
     alignItems: 'center',
   },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: SCREEN_WIDTH * (isSmallScreen ? 0.9 : 0.85),
+    paddingHorizontal: responsivePadding(20),
+  },
   headerLine: {
     width: SCREEN_WIDTH * (isSmallScreen ? 0.85 : 0.8),
     height: 1,
@@ -165,6 +180,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: AppColors.white,
     textAlign: 'center',
+    flex: 1,
+  },
+  settingsButton: {
+    padding: responsivePadding(8),
+    borderRadius: responsiveBorderRadius(8),
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   content: {
     flex: 1,
