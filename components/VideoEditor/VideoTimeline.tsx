@@ -1,9 +1,10 @@
 import { moderateScale } from '@/utils/scaling';
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
-import { Image, LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Image, LayoutChangeEvent, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+
 
 interface VideoTimelineProps {
   duration: number; // Video duration in seconds
@@ -26,11 +27,29 @@ export default function VideoTimeline({
   trimStart = 0,
   trimEnd = duration,
   videoFrames = [],
-  isLoading = false
+  isLoading = false,
 }: VideoTimelineProps) {
   // Timeline layout width (px)
   const [trackWidthState, setTrackWidthState] = useState(0);
   const trackWidth = useSharedValue(0);
+  const [showTrimUI, setShowTrimUI] = useState(false);
+  
+  // Debug: Log trim values
+  useEffect(() => {
+    console.log('Trim UI Debug:', {
+      showTrimUI,
+      trimStart,
+      trimEnd,
+      trackWidthState,
+      duration
+    });
+  }, [showTrimUI, trimStart, trimEnd, trackWidthState, duration]);
+  const pxPerSecond = moderateScale(60);
+  const frameGapPx = 0; // No gap between frames
+  const markersScrollRef = useRef<ScrollView>(null);
+  const thumbnailsScrollRef = useRef<ScrollView>(null);
+  const isMarkersScrolling = useRef(false);
+  const isThumbnailsScrolling = useRef(false);
 
   // Handle sizes
   const handleDiameter = moderateScale(18);
@@ -63,10 +82,20 @@ export default function VideoTimeline({
     trimEndX.value = endPx;
   }, [trackWidthState, trimStart, trimEnd, duration]);
 
+  // Recalculate width when duration changes (new video uploaded)
+  useEffect(() => {
+    if (duration > 0) {
+      const newWidth = Math.ceil(duration) * pxPerSecond;
+      setTrackWidthState(newWidth);
+      trackWidth.value = newWidth;
+    }
+  }, [duration]);
+
   const onTrackLayout = (e: LayoutChangeEvent) => {
-    const w = e.nativeEvent.layout.width;
-    setTrackWidthState(w);
-    trackWidth.value = w;
+    const viewportW = e.nativeEvent.layout.width;
+    const contentW = Math.max(viewportW, Math.ceil(Math.max(1, duration)) * pxPerSecond);
+    setTrackWidthState(contentW);
+    trackWidth.value = contentW;
   };
 
   // Gesture start positions
@@ -159,27 +188,13 @@ export default function VideoTimeline({
     const markers = [];
     const totalSeconds = Math.ceil(duration);
     
-    // Only show markers at reasonable intervals to avoid overcrowding
-    const maxMarkers = 8; // Maximum number of markers to show
-    const interval = totalSeconds <= maxMarkers ? 1 : Math.ceil(totalSeconds / maxMarkers);
-    
-    for (let i = 0; i <= totalSeconds; i += interval) {
-      const position = (i / duration) * 100;
+    // Show every second marker
+    for (let i = 0; i <= totalSeconds; i += 1) {
+      const positionPx = i * pxPerSecond;
       markers.push(
-        <View key={i} style={[styles.timeMarker, { left: `${position}%` }]}>
+        <View key={i} style={[styles.timeMarker, { left: positionPx }]}>
           <View style={styles.markerLine} />
           <Text style={styles.markerText}>{i}s</Text>
-        </View>
-      );
-    }
-    
-    // Always show the end marker
-    if (totalSeconds % interval !== 0) {
-      const position = 100;
-      markers.push(
-        <View key={totalSeconds} style={[styles.timeMarker, { left: `${position}%` }]}>
-          <View style={styles.markerLine} />
-          <Text style={styles.markerText}>{totalSeconds}s</Text>
         </View>
       );
     }
@@ -190,34 +205,79 @@ export default function VideoTimeline({
   return (
     <GestureHandlerRootView style={styles.container}>
       <View style={styles.timelineContainer}>
-        {/* Time markers for each second */}
-        <View style={styles.timeMarkersContainer}>
-          {generateTimeMarkers()}
-        </View>
+        {/* Time markers for each second (scrollable) */}
+        <ScrollView
+          key={`markers-${duration}`}
+          ref={markersScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ width: trackWidthState }}
+          scrollEventThrottle={16}
+          onScroll={(event) => {
+            if (isThumbnailsScrolling.current) return;
+            isMarkersScrolling.current = true;
+            const offsetX = event.nativeEvent.contentOffset.x;
+            if (thumbnailsScrollRef.current) {
+              thumbnailsScrollRef.current.scrollTo({ x: offsetX, animated: false });
+            }
+            setTimeout(() => { isMarkersScrolling.current = false; }, 50);
+          }}
+        >
+          <View style={[styles.timeMarkersContainer, { width: trackWidthState }]}>
+            {generateTimeMarkers()}
+          </View>
+        </ScrollView>
 
-        {/* Timeline track */}
-        <View style={styles.timelineTrack} onLayout={onTrackLayout}>
+        {/* Timeline track (tap to toggle trim UI) */}
+        <ScrollView
+          key={`thumbnails-${duration}`}
+          ref={thumbnailsScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          onLayout={onTrackLayout}
+          contentContainerStyle={{ width: trackWidthState }}
+          scrollEventThrottle={16}
+          onScroll={(event) => {
+            if (isMarkersScrolling.current) return;
+            isThumbnailsScrolling.current = true;
+            const offsetX = event.nativeEvent.contentOffset.x;
+            if (markersScrollRef.current) {
+              markersScrollRef.current.scrollTo({ x: offsetX, animated: false });
+            }
+            setTimeout(() => { isThumbnailsScrolling.current = false; }, 50);
+          }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[styles.timelineTrack, { width: trackWidthState }]}
+            onPress={() => {
+              setShowTrimUI((v) => !v);
+            }}
+          >
           {/* Background track */}
           <View style={styles.backgroundTrack} />
           
-          {/* Video frame thumbnails */}
-          {!isLoading && videoFrames.length > 0 && (
-            <View style={styles.framesContainer}>
-              {videoFrames.map((frameUri, index) => {
-                if (!frameUri || frameUri.trim() === '') return null;
-                const frameTime = (index / videoFrames.length) * duration;
-                const position = (frameTime / duration) * 100;
-                
+          {/* Video frame thumbnails: one per second */}
+          {!isLoading && (
+            <View style={[styles.framesContainer, { width: trackWidthState }] }>
+              {Array.from({ length: Math.max(1, Math.ceil(duration)) }).map((_, i) => {
+                const leftPx = i * pxPerSecond;
+                const widthPx = pxPerSecond; // Full width, no gap
+                const frameIndex = videoFrames.length > 0
+                  ? Math.min(videoFrames.length - 1, Math.floor((i / Math.max(1, duration)) * videoFrames.length))
+                  : -1;
+                const uri = frameIndex >= 0 ? videoFrames[frameIndex] : undefined;
                 return (
-                  <Image
-                    key={`frame-${index}`}
-                    source={{ uri: frameUri }}
-                    style={[
-                      styles.frameThumbnail,
-                      { left: `${position}%` }
-                    ]}
-                    resizeMode="cover"
-                  />
+                  <View
+                    key={`sec-${i}`}
+                    style={[styles.perSecondFrame, { left: leftPx, width: widthPx }]}
+                  >
+                    {uri ? (
+                      <Image source={{ uri }} style={styles.frameThumbnail} resizeMode="cover" />
+                    ) : (
+                      <View style={styles.framePlaceholder} />
+                    )}
+                  </View>
                 );
               })}
             </View>
@@ -230,57 +290,47 @@ export default function VideoTimeline({
             </View>
           )}
           
-          {/* Second interval markers on track - simplified */}
-          {Array.from({ length: Math.min(Math.ceil(duration) + 1, 9) }, (_, i) => {
-            const interval = duration <= 8 ? 1 : duration / 8;
-            const time = i * interval;
-            if (time <= duration) {
-              return (
-                <View 
-                  key={`track-marker-${i}`}
-                  style={[
-                    styles.trackMarker,
-                    { left: `${(time / duration) * 100}%` }
-                  ]}
-                />
-              );
-            }
-            return null;
-          }).filter(Boolean)}
+           {/* Second interval markers on track - every second */}
+           {Array.from({ length: Math.ceil(duration) + 1 }, (_, i) => (
+             <View
+               key={`track-marker-${i}`}
+               style={[styles.trackMarker, { left: i * pxPerSecond }]}
+             />
+           ))}
           
-          {/* Trim selection area */}
-          <Animated.View 
-            style={[
-              styles.trimArea,
-              trimAreaStyle,
-            ]}
-          />
-
-          {/* Trim start handle */}
-          <GestureDetector gesture={trimStartGesture}>
-            <Animated.View
-              style={[
-                styles.trimHandle,
-                styles.trimStartHandle,
-                trimStartHandleStyle,
-              ]}
-            >
-              <MaterialIcons name="drag-handle" size={20} color="white" />
-            </Animated.View>
-          </GestureDetector>
-
-          {/* Trim end handle */}
-          <GestureDetector gesture={trimEndGesture}>
-            <Animated.View
-              style={[
-                styles.trimHandle,
-                styles.trimEndHandle,
-                trimEndHandleStyle,
-              ]}
-            >
-              <MaterialIcons name="drag-handle" size={20} color="white" />
-            </Animated.View>
-          </GestureDetector>
+          {/* Trim UI */}
+          {showTrimUI && (
+            <>
+              <Animated.View 
+                style={[
+                  styles.trimArea,
+                  trimAreaStyle,
+                ]}
+              />
+              <GestureDetector gesture={trimStartGesture}>
+                <Animated.View
+                  style={[
+                    styles.trimHandle,
+                    styles.trimStartHandle,
+                    trimStartHandleStyle,
+                  ]}
+                >
+                  <MaterialIcons name="drag-handle" size={20} color="white" />
+                </Animated.View>
+              </GestureDetector>
+              <GestureDetector gesture={trimEndGesture}>
+                <Animated.View
+                  style={[
+                    styles.trimHandle,
+                    styles.trimEndHandle,
+                    trimEndHandleStyle,
+                  ]}
+                >
+                  <MaterialIcons name="drag-handle" size={20} color="white" />
+                </Animated.View>
+              </GestureDetector>
+            </>
+          )}
 
 
 
@@ -288,7 +338,7 @@ export default function VideoTimeline({
           <View 
             style={[
               styles.playhead,
-              { left: `${getPositionPercentage(currentTime)}%` }
+              { left: (Math.max(0, Math.min(1, duration === 0 ? 0 : currentTime / duration)) * trackWidthState) }
             ]}
           >
             <View style={styles.playheadLine} />
@@ -296,7 +346,9 @@ export default function VideoTimeline({
               <MaterialIcons name="play-arrow" size={12} color="white" />
             </View>
           </View>
-        </View>
+
+          </TouchableOpacity>
+        </ScrollView>
 
         {/* Current time display */}
         <View style={styles.currentTimeContainer}>
@@ -306,12 +358,16 @@ export default function VideoTimeline({
         </View>
 
         {/* Trim info */}
-        <View style={styles.trimInfo}>
-          <Text style={styles.trimInfoText}>
-            Trim: {formatTime(trimStart)} - {formatTime(trimEnd)} 
-            ({formatTime(trimEnd - trimStart)} selected)
-          </Text>
-        </View>
+        {showTrimUI && (
+          <View style={styles.trimInfo}>
+            <Text style={styles.trimInfoText}>
+              Trim: {formatTime(trimStart)} - {formatTime(trimEnd)} 
+              ({formatTime(trimEnd - trimStart)} selected)
+            </Text>
+          </View>
+        )}
+
+
       </View>
     </GestureHandlerRootView>
   );
@@ -392,14 +448,26 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  frameThumbnail: {
+  perSecondFrame: {
     position: 'absolute',
     top: 0,
-    width: moderateScale(20),
+    bottom: 0,
+    paddingHorizontal: 0, // No padding between frames
+  },
+  frameThumbnail: {
+    width: '100%',
     height: '100%',
-    borderRadius: moderateScale(2),
+    borderRadius: moderateScale(4),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  framePlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: moderateScale(4),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   loadingContainer: {
     position: 'absolute',
@@ -422,6 +490,7 @@ const styles = StyleSheet.create({
     height: moderateScale(4),
     backgroundColor: '#007AFF',
     borderRadius: moderateScale(2),
+    zIndex: 15, // Above frames but below handles
   },
   trimHandle: {
     position: 'absolute',
@@ -443,6 +512,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 3,
     elevation: 5,
+    zIndex: 20, // Higher than split icons
   },
   trimStartHandle: {
     borderTopRightRadius: 0,

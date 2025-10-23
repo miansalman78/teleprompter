@@ -1,16 +1,15 @@
-import React, { useState, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Text,
-  Image,
-  Dimensions,
-} from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
 import { moderateScale } from '@/utils/scaling';
-import { AppColors } from '@/constants/Colors';
+import { MaterialIcons } from '@expo/vector-icons';
+import React, { useRef, useState } from 'react';
+import {
+    Dimensions,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -20,6 +19,12 @@ interface VideoTimelineProps {
   onTimeChange: (time: number) => void;
   videoFrames?: string[];
   isLoading?: boolean;
+  onPressTimeline?: () => void;
+  onAddClip?: () => void;
+  showAddButton?: boolean;
+  splitPoints?: number[]; // Array of split times in seconds
+  onSplit?: (time: number) => void; // Callback when user wants to split at current time
+  onRemoveSplit?: (index: number) => void; // Callback to remove a split
 }
 
 const VideoTimeline: React.FC<VideoTimelineProps> = ({
@@ -28,6 +33,12 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
   onTimeChange,
   videoFrames = [],
   isLoading = false,
+  onPressTimeline,
+  onAddClip,
+  showAddButton = true,
+  splitPoints = [],
+  onSplit,
+  onRemoveSplit,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -77,6 +88,21 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
     const { locationX } = event.nativeEvent;
     const newTime = (locationX / timelineWidth) * videoDuration;
     onTimeChange(Math.max(0, Math.min(videoDuration, newTime)));
+    if (onPressTimeline) onPressTimeline();
+  };
+
+  const handleSplitPress = (event: any) => {
+    event.stopPropagation();
+    if (onSplit) {
+      onSplit(currentTime);
+    }
+  };
+
+  const handleRemoveSplit = (index: number, event: any) => {
+    event.stopPropagation();
+    if (onRemoveSplit) {
+      onRemoveSplit(index);
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -153,7 +179,7 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
             onPress={handleTimelinePress}
             style={styles.timelineTrack}
           >
-            {/* Frame Thumbnails */}
+            {/* Frame Thumbnails with Split Points */}
             <View style={styles.framesContainer}>
               {isLoading ? (
                 // Show loading placeholders - one for each second with spacing only at second intervals
@@ -172,31 +198,54 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
                   </View>
                 ))
               ) : (
-                frames.map((frame, index) => (
-                  <View key={frame.id} style={[styles.frameItem, { 
-                    width: frameWidth, 
-                    marginRight: (index + 1) % 1 === 0 ? frameSpacing : 0, // Space only at second intervals
-                    overflow: 'hidden'
-                  }]}>
-                    {frame.thumbnail && typeof frame.thumbnail === 'string' && frame.thumbnail.trim() !== '' ? (
-                      <Image 
-                        source={{ uri: frame.thumbnail }} 
-                        style={styles.frameThumbnail}
-                        onLoad={() => console.log('VideoTimeline - Image loaded for frame', frame.id, frame.thumbnail.substring(0, 50))}
-                        onError={(error) => console.log('VideoTimeline - Image error for frame', frame.id, error.nativeEvent)}
-                        onLoadStart={() => console.log('VideoTimeline - Image load started for frame', frame.id)}
-                        onLoadEnd={() => console.log('VideoTimeline - Image load ended for frame', frame.id)}
-                      />
-                    ) : (
-                      <View style={styles.placeholderFrame}>
-                        <MaterialIcons name="videocam" size={16} color="#666" />
-                        <Text style={{ color: '#666', fontSize: 8, marginTop: 2 }}>
-                          {formatTime(frame.time)}
-                        </Text>
+                frames.map((frame, index) => {
+                  const frameTime = frame.time;
+                  const hasSplitAfter = splitPoints.includes(frameTime);
+                  
+                  return (
+                    <React.Fragment key={frame.id}>
+                      <View style={[styles.frameItem, { 
+                        width: frameWidth, 
+                        marginRight: 0, // No margin, we'll handle spacing with split gaps
+                        overflow: 'hidden'
+                      }]}>
+                        {frame.thumbnail && typeof frame.thumbnail === 'string' && frame.thumbnail.trim() !== '' ? (
+                          <Image 
+                            source={{ uri: frame.thumbnail }} 
+                            style={styles.frameThumbnail}
+                            onLoad={() => console.log('VideoTimeline - Image loaded for frame', frame.id, frame.thumbnail.substring(0, 50))}
+                            onError={(error) => console.log('VideoTimeline - Image error for frame', frame.id, error.nativeEvent)}
+                            onLoadStart={() => console.log('VideoTimeline - Image load started for frame', frame.id)}
+                            onLoadEnd={() => console.log('VideoTimeline - Image load ended for frame', frame.id)}
+                          />
+                        ) : (
+                          <View style={styles.placeholderFrame}>
+                            <MaterialIcons name="videocam" size={16} color="#666" />
+                            <Text style={{ color: '#666', fontSize: 8, marginTop: 2 }}>
+                              {formatTime(frame.time)}
+                            </Text>
+                          </View>
+                        )}
                       </View>
-                    )}
-                  </View>
-                ))
+                      
+                      {/* Split Gap with Icon */}
+                      {hasSplitAfter && (
+                        <View style={styles.splitGap}>
+                          <View style={styles.splitLine} />
+                          <TouchableOpacity 
+                            style={styles.splitIconContainer}
+                            onPress={(event) => handleRemoveSplit(splitPoints.indexOf(frameTime), event)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.splitIcon}>
+                              <MaterialIcons name="content-cut" size={moderateScale(12)} color="white" />
+                            </View>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </React.Fragment>
+                  );
+                })
               )}
             </View>
 
@@ -215,6 +264,24 @@ const VideoTimeline: React.FC<VideoTimelineProps> = ({
               <View style={styles.playheadLine} />
               <View style={styles.playheadHandle} />
             </View>
+            {/* Split Button */}
+            <TouchableOpacity
+              style={[styles.splitButton, { left: scrubberPosition - moderateScale(14) }]}
+              onPress={handleSplitPress}
+              activeOpacity={0.8}
+            >
+              <MaterialIcons name="content-cut" size={moderateScale(16)} color="#fff" />
+            </TouchableOpacity>
+
+            {showAddButton && (
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => onAddClip && onAddClip()}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="add" size={moderateScale(18)} color="#fff" />
+              </TouchableOpacity>
+            )}
           </TouchableOpacity>
         </ScrollView>
 
@@ -311,6 +378,62 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(6),
     backgroundColor: '#00D4FF',
     marginTop: -moderateScale(6),
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  addButton: {
+    position: 'absolute',
+    right: moderateScale(8),
+    top: moderateScale(8),
+    width: moderateScale(28),
+    height: moderateScale(28),
+    borderRadius: moderateScale(14),
+    backgroundColor: 'rgba(37,155,154,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splitButton: {
+    position: 'absolute',
+    top: moderateScale(8),
+    width: moderateScale(28),
+    height: moderateScale(28),
+    borderRadius: moderateScale(14),
+    backgroundColor: 'rgba(255, 0, 0, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 15,
+  },
+  splitGap: {
+    width: moderateScale(20),
+    height: moderateScale(60),
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splitLine: {
+    position: 'absolute',
+    left: '50%',
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    marginLeft: -1,
+  },
+  splitIconContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginTop: -moderateScale(10),
+    marginLeft: -moderateScale(10),
+  },
+  splitIcon: {
+    width: moderateScale(20),
+    height: moderateScale(20),
+    borderRadius: moderateScale(10),
+    backgroundColor: 'rgba(255, 0, 0, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 2,
     borderColor: 'white',
   },

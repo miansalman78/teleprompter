@@ -1,8 +1,7 @@
 import { Video } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Platform } from 'react-native';
-import { useVideoPlayer } from 'expo-video';
 import * as VideoThumbnails from 'expo-video-thumbnails';
+import { Platform } from 'react-native';
 
 export interface VideoMetadata {
   duration: number;

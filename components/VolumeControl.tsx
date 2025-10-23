@@ -2,9 +2,13 @@ import { moderateScale } from '@/utils/scaling';
 import { MaterialIcons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import * as DocumentPicker from 'expo-document-picker';
-import React from 'react';
+import React, { useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useVolume } from '../contexts/VolumeContext';
+import { AudioMixer, AudioMixOptions } from '../utils/audioMixer';
+import { MusicTrack } from '../utils/musicLibrary';
+import MusicSelector from './MusicSelector';
+import MusicTimeline from './MusicTimeline';
 
 interface VolumeControlProps {
   style?: any;
@@ -21,6 +25,14 @@ interface VolumeControlProps {
   onDeleteVoice?: () => void;
   onVoiceVolumeChange?: (volume: number) => void;
   onVoiceMuteToggle?: () => void;
+  // Music timeline props
+  videoDuration?: number;
+  musicStartTime?: number;
+  musicEndTime?: number;
+  onMusicStartTimeChange?: (time: number) => void;
+  onMusicEndTimeChange?: (time: number) => void;
+  // Export method
+  onExportWithAudio?: (videoPath: string, outputPath: string) => Promise<string>;
 }
 
 const VolumeControl: React.FC<VolumeControlProps> = ({ 
@@ -36,12 +48,23 @@ const VolumeControl: React.FC<VolumeControlProps> = ({
   onStopRecording,
   onDeleteVoice,
   onVoiceVolumeChange,
-  onVoiceMuteToggle
+  onVoiceMuteToggle,
+  videoDuration = 60,
+  musicStartTime = 0,
+  musicEndTime = 60,
+  onMusicStartTimeChange,
+  onMusicEndTimeChange,
+  onExportWithAudio
 }) => {
   const { 
     volume, isMuted, setVolume, toggleMute, getActualVolume,
     audioTrack, audioVolume, isAudioMuted, setAudioVolume, toggleAudioMute, getActualAudioVolume
   } = useVolume();
+
+  // Music selection state
+  const [showMusicSelector, setShowMusicSelector] = useState(false);
+  const [selectedMusicTrack, setSelectedMusicTrack] = useState<MusicTrack | null>(null);
+  const [showMusicTimeline, setShowMusicTimeline] = useState(false);
 
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
@@ -70,6 +93,124 @@ const VolumeControl: React.FC<VolumeControlProps> = ({
     } catch (error) {
       console.error('Error picking audio:', error);
       Alert.alert('Error', 'Failed to select audio file');
+    }
+  };
+
+  const handleSelectRoyaltyFreeMusic = () => {
+    setShowMusicSelector(true);
+  };
+
+  const handleMusicTrackSelected = (track: MusicTrack) => {
+    setSelectedMusicTrack(track);
+    setShowMusicTimeline(true);
+    setShowMusicSelector(false);
+    
+    // For royalty-free tracks, use the file path (can be local or online)
+    if (track.filePath) {
+      // Use the file path (local or online URL)
+      if (onAudioAdded) {
+        onAudioAdded(track.filePath, track.name);
+      }
+    } else {
+      // No audio available - show message
+      Alert.alert(
+        'Audio Not Available',
+        'This track does not have audio available yet. Please select a different track or import your own audio.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const handleImportLocalMusic = () => {
+    setShowMusicSelector(false);
+    handleAddMusic();
+  };
+
+  const handleRemoveMusicTrack = () => {
+    setSelectedMusicTrack(null);
+    setShowMusicTimeline(false);
+  };
+
+  const handleMusicStartTimeChange = (time: number) => {
+    if (onMusicStartTimeChange) {
+      onMusicStartTimeChange(time);
+    }
+  };
+
+  const handleMusicEndTimeChange = (time: number) => {
+    if (onMusicEndTimeChange) {
+      onMusicEndTimeChange(time);
+    }
+  };
+
+
+  // Expose the export method
+  React.useEffect(() => {
+    if (onExportWithAudio) {
+      onExportWithAudio = handleExportWithAudio;
+    }
+  }, [onExportWithAudio]);
+
+  /**
+   * Mix audio with video for final export (offline processing)
+   */
+  const handleExportWithAudio = async (
+    videoPath: string,
+    outputPath: string
+  ): Promise<string> => {
+    try {
+      if (!selectedMusicTrack && !audioTrack) {
+        // No audio to mix, just return the original video
+        return videoPath;
+      }
+
+      // For royalty-free tracks, use the file path (local or online) for audio mixing
+      if (selectedMusicTrack && !audioTrack) {
+        console.log('Royalty-free track selected:', selectedMusicTrack.name);
+        
+        // Use the track's file path (can be local or online URL)
+        const audioPath = selectedMusicTrack.filePath;
+        if (!audioPath) {
+          return videoPath;
+        }
+
+        const mixOptions: AudioMixOptions = {
+          videoPath,
+          audioPath,
+          outputPath,
+          audioStartTime: musicStartTime,
+          audioEndTime: musicEndTime,
+          audioVolume: audioVolume,
+          muteOriginalAudio: false,
+          videoVolume: volume,
+        };
+
+        const resultPath = await AudioMixer.mixAudioWithVideo(mixOptions);
+        return resultPath;
+      }
+
+      const audioPath = audioTrack?.uri;
+      if (!audioPath) {
+        return videoPath;
+      }
+
+      const mixOptions: AudioMixOptions = {
+        videoPath,
+        audioPath,
+        outputPath,
+        audioStartTime: musicStartTime,
+        audioEndTime: musicEndTime,
+        audioVolume: audioVolume,
+        muteOriginalAudio: false, // Always keep original audio
+        videoVolume: volume,
+      };
+
+      const resultPath = await AudioMixer.mixAudioWithVideo(mixOptions);
+      return resultPath;
+    } catch (error) {
+      console.error('Error mixing audio for export:', error);
+      Alert.alert('Export Error', 'Failed to mix audio with video. Please try again.');
+      throw error;
     }
   };
 
@@ -110,31 +251,52 @@ const VolumeControl: React.FC<VolumeControlProps> = ({
             {isMuted ? 'Muted' : `${Math.round(volume)}%`}
           </Text>
         </View>
+        
       </View>
 
       {/* Audio Track Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Background Music</Text>
         
-        {!audioTrack ? (
-          <TouchableOpacity style={styles.addMusicButton} onPress={handleAddMusic}>
-            <MaterialIcons name="music-note" size={moderateScale(20)} color="white" />
-            <Text style={styles.addMusicText}>Add Music</Text>
-          </TouchableOpacity>
+        {!audioTrack && !selectedMusicTrack ? (
+          <View style={styles.musicOptionsContainer}>
+            <TouchableOpacity style={styles.addMusicButton} onPress={handleSelectRoyaltyFreeMusic}>
+              <MaterialIcons name="library-music" size={moderateScale(20)} color="white" />
+              <Text style={styles.addMusicText}>Select Royalty-Free Music</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.addMusicButton} onPress={handleAddMusic}>
+              <MaterialIcons name="upload" size={moderateScale(20)} color="white" />
+              <Text style={styles.addMusicText}>Import from Device</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <>
             <View style={styles.audioTrackInfo}>
               <MaterialIcons name="music-note" size={moderateScale(16)} color="#259B9A" />
               <Text style={styles.audioTrackName} numberOfLines={1}>
-                {audioTrack.name}
+                {audioTrack?.name || selectedMusicTrack?.name || 'Unknown Track'}
               </Text>
+              {selectedMusicTrack && (
+                <View style={styles.musicTrackBadge}>
+                  <Text style={styles.musicTrackBadgeText}>Royalty-Free</Text>
+                </View>
+              )}
               <TouchableOpacity 
                 style={styles.removeButton}
-                onPress={onAudioRemoved}
+                onPress={selectedMusicTrack ? handleRemoveMusicTrack : onAudioRemoved}
               >
                 <MaterialIcons name="close" size={moderateScale(16)} color="white" />
               </TouchableOpacity>
             </View>
+            
+            {selectedMusicTrack && (
+              <View style={styles.musicNoteContainer}>
+                <Text style={styles.musicNoteText}>
+                  🎵 Royalty-free track selected! Audio will be streamed from online source during export.
+                </Text>
+              </View>
+            )}
             
             <View style={styles.volumeContainer}>
               <TouchableOpacity
@@ -234,6 +396,27 @@ const VolumeControl: React.FC<VolumeControlProps> = ({
           </>
         )}
       </View>
+
+      {/* Music Timeline */}
+      {showMusicTimeline && selectedMusicTrack && (
+        <MusicTimeline
+          selectedTrack={selectedMusicTrack}
+          videoDuration={videoDuration}
+          musicStartTime={musicStartTime}
+          musicEndTime={musicEndTime}
+          onStartTimeChange={handleMusicStartTimeChange}
+          onEndTimeChange={handleMusicEndTimeChange}
+          onRemoveTrack={handleRemoveMusicTrack}
+        />
+      )}
+
+      {/* Music Selector Modal */}
+      <MusicSelector
+        isVisible={showMusicSelector}
+        onClose={() => setShowMusicSelector(false)}
+        onSelectTrack={handleMusicTrackSelected}
+        onImportLocal={handleImportLocalMusic}
+      />
     </View>
   );
 };
@@ -319,6 +502,31 @@ const styles = StyleSheet.create({
     padding: moderateScale(4),
     borderRadius: moderateScale(4),
   },
+  musicTrackBadge: {
+    backgroundColor: 'rgba(37, 155, 154, 0.2)',
+    paddingHorizontal: moderateScale(6),
+    paddingVertical: moderateScale(2),
+    borderRadius: moderateScale(4),
+    marginLeft: moderateScale(8),
+  },
+  musicTrackBadgeText: {
+    color: '#259B9A',
+    fontSize: moderateScale(10),
+    fontWeight: '500',
+  },
+  musicNoteContainer: {
+    backgroundColor: 'rgba(40, 167, 69, 0.1)',
+    borderColor: '#28a745',
+    borderWidth: 1,
+    borderRadius: moderateScale(6),
+    padding: moderateScale(8),
+    marginBottom: moderateScale(10),
+  },
+  musicNoteText: {
+    color: '#28a745',
+    fontSize: moderateScale(11),
+    textAlign: 'center',
+  },
   // Voice Recording Styles
   recordButton: {
     backgroundColor: 'rgba(37, 155, 154, 0.2)',
@@ -353,6 +561,10 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(12),
     flex: 1,
     marginLeft: moderateScale(8),
+  },
+  // New styles for music features
+  musicOptionsContainer: {
+    gap: moderateScale(10),
   },
 });
 

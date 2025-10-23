@@ -1,14 +1,14 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+// Import polyfills for React Native compatibility
+import './polyfills';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 export interface S3Config {
-  region: string;
-  bucketName: string;
-  accessKeyId: string;
-  secretAccessKey: string;
+  presignedUrl?: string; // Only need pre-signed URL
+  testMode?: boolean; // Add test mode flag
 }
+
 
 export interface UploadProgress {
   loaded: number;
@@ -24,30 +24,36 @@ export interface UploadResult {
 }
 
 export class AWSS3Service {
-  private static s3Client: S3Client | null = null;
   private static config: S3Config | null = null;
 
   /**
-   * Initialize AWS S3 client with configuration
+   * Initialize AWS S3 service with pre-signed URL
    */
   static async initialize(config: S3Config): Promise<void> {
-    try {
-      this.config = config;
-      this.s3Client = new S3Client({
-        region: config.region,
-        credentials: {
-          accessKeyId: config.accessKeyId,
-          secretAccessKey: config.secretAccessKey,
-        },
-      });
+    // If in test mode, use mock configuration
+    if (config.testMode) {
+      console.log('Initializing AWS S3 service in TEST MODE with pre-signed URLs');
+      this.config = {
+        presignedUrl: 'https://test-bucket.s3.us-east-1.amazonaws.com/test-upload',
+        testMode: true
+      };
       
-      // Save config to AsyncStorage for persistence
-      await AsyncStorage.setItem('aws_s3_config', JSON.stringify(config));
-      console.log('AWS S3 service initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize AWS S3 service:', error);
-      throw error;
+      // Save test config to AsyncStorage
+      await AsyncStorage.setItem('aws_s3_config', JSON.stringify(this.config));
+      console.log('AWS S3 service initialized in TEST MODE');
+      return;
     }
+
+    // For production, only need pre-signed URL
+    if (!config.presignedUrl) {
+      throw new Error('Pre-signed URL is required for upload');
+    }
+
+    this.config = config;
+    
+    // Save config to AsyncStorage for persistence
+    await AsyncStorage.setItem('aws_s3_config', JSON.stringify(config));
+    console.log('AWS S3 service initialized with pre-signed URL');
   }
 
   /**
@@ -55,15 +61,30 @@ export class AWSS3Service {
    */
   static async loadConfig(): Promise<S3Config | null> {
     try {
+      console.log('Loading AWS S3 configuration from storage...');
       const configString = await AsyncStorage.getItem('aws_s3_config');
-      if (configString) {
-        this.config = JSON.parse(configString);
-        if (this.config) {
-          await this.initialize(this.config);
-        }
-        return this.config;
+      
+      if (!configString) {
+        console.log('No AWS S3 configuration found in storage');
+        return null;
       }
-      return null;
+      
+      console.log('AWS S3 configuration found in storage');
+      this.config = JSON.parse(configString);
+      
+      if (!this.config) {
+        console.log('Failed to parse AWS S3 configuration');
+        return null;
+      }
+      
+      // Validate configuration - only need pre-signed URL or test mode
+      if (!this.config.presignedUrl && !(this.config.testMode === true)) {
+        console.log('AWS S3 configuration incomplete - missing pre-signed URL');
+        return null;
+      }
+      
+      console.log('AWS S3 configuration validated');
+      return this.config;
     } catch (error) {
       console.error('Failed to load AWS S3 config:', error);
       return null;
@@ -74,109 +95,219 @@ export class AWSS3Service {
    * Check if S3 service is properly configured
    */
   static isConfigured(): boolean {
-    return this.s3Client !== null && this.config !== null;
+    return this.config !== null && (!!this.config.presignedUrl || this.config.testMode === true);
   }
 
   /**
-   * Upload video file to S3
+   * Test pre-signed URL configuration
+   */
+  static async testConnection(): Promise<{ success: boolean; message: string }> {
+    try {
+      console.log('Testing pre-signed URL configuration...');
+      
+      if (!this.config) {
+        console.log('No configuration found, attempting to load config...');
+        const loadedConfig = await this.loadConfig();
+        if (!loadedConfig) {
+          return {
+            success: false,
+            message: 'AWS S3 service not configured. Please configure pre-signed URL first.'
+          };
+        }
+      }
+
+      // Handle test mode
+      if (this.config?.testMode) {
+        console.log('Running in TEST MODE - simulating connection test');
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
+        return {
+          success: true,
+          message: 'Test mode: Pre-signed URL configuration test simulated successfully'
+        };
+      }
+
+      // Check if pre-signed URL is valid
+      if (!this.config?.presignedUrl) {
+        return {
+          success: false,
+          message: 'Pre-signed URL is not configured'
+        };
+      }
+
+      // Test the pre-signed URL by making a HEAD request
+      try {
+        const response = await fetch(this.config.presignedUrl, {
+          method: 'HEAD',
+        });
+        
+        if (response.ok) {
+          console.log('Pre-signed URL test successful');
+          return {
+            success: true,
+            message: 'Pre-signed URL is valid and accessible'
+          };
+        } else {
+          return {
+            success: false,
+            message: `Pre-signed URL test failed with status: ${response.status}`
+          };
+        }
+      } catch (fetchError) {
+        return {
+          success: false,
+          message: `Pre-signed URL test failed: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`
+        };
+      }
+    } catch (error) {
+      console.error('Pre-signed URL test failed:', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
+  }
+
+  /**
+   * Upload video file using pre-signed URL
    */
   static async uploadVideo(
     filePath: string,
-    key: string,
+    presignedUrl: string,
     onProgress?: (progress: UploadProgress) => void
   ): Promise<UploadResult> {
     try {
-      if (!this.s3Client || !this.config) {
-        throw new Error('AWS S3 service not initialized');
-      }
-
+      console.log('Starting video upload with pre-signed URL:', { filePath, presignedUrl });
+      
       // Check if file exists
       const fileInfo = await FileSystem.getInfoAsync(filePath);
       if (!fileInfo.exists) {
         throw new Error(`File not found: ${filePath}`);
       }
 
+      console.log('File info:', { 
+        exists: fileInfo.exists, 
+        size: fileInfo.size, 
+        uri: fileInfo.uri 
+      });
+
+      // Handle test mode
+      if (this.config?.testMode) {
+        console.log('Running in TEST MODE - simulating upload with pre-signed URL');
+        
+        // Simulate upload progress
+        if (onProgress) {
+          const steps = [10, 25, 50, 75, 90, 100];
+          for (let i = 0; i < steps.length; i++) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+            onProgress({
+              loaded: Math.floor((fileInfo.size || 0) * steps[i] / 100),
+              total: fileInfo.size || 0,
+              percentage: steps[i],
+            });
+          }
+        }
+
+        // Generate a mock pre-signed URL for testing
+        const mockUrl = `https://test-bucket.s3.us-east-1.amazonaws.com/test-upload?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test%2F20240101%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20240101T000000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=test-signature`;
+        
+        console.log('Test upload completed successfully');
+        
+        return {
+          success: true,
+          key: 'test-upload',
+          url: mockUrl,
+        };
+      }
+
+      // Real upload using pre-signed URL
+      console.log('Uploading to pre-signed URL...');
+      
       // Read file as base64
       const fileData = await FileSystem.readAsStringAsync(filePath, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
+      if (!fileData || fileData.length === 0) {
+        throw new Error('File is empty or could not be read');
+      }
+
       // Convert base64 to buffer
       const buffer = Buffer.from(fileData, 'base64');
+      console.log('Buffer created, size:', buffer.length);
 
-      // Create upload command
-      const command = new PutObjectCommand({
-        Bucket: this.config.bucketName,
-        Key: key,
-        Body: buffer,
-        ContentType: 'video/mp4',
-        Metadata: {
-          'uploaded-at': new Date().toISOString(),
-          'app-version': '1.1.0',
+      // Upload using fetch with pre-signed URL
+      const response = await fetch(presignedUrl, {
+        method: 'PUT',
+        body: buffer,
+        headers: {
+          'Content-Type': 'video/mp4',
         },
       });
 
-      // Simulate progress for large files
-      if (onProgress) {
-        const totalSize = buffer.length;
-        let loaded = 0;
-        const progressInterval = setInterval(() => {
-          loaded += Math.min(1024 * 1024, totalSize - loaded); // 1MB chunks
-          onProgress({
-            loaded,
-            total: totalSize,
-            percentage: Math.round((loaded / totalSize) * 100),
-          });
-          
-          if (loaded >= totalSize) {
-            clearInterval(progressInterval);
-          }
-        }, 100);
+      if (!response.ok) {
+        throw new Error(`Upload failed with status: ${response.status} - ${response.statusText}`);
       }
 
-      // Execute upload
-      const result = await this.s3Client.send(command);
-      
-      // Generate presigned URL for the uploaded file
-      const url = await this.getPresignedUrl(key);
-      
-      console.log('Video uploaded successfully to S3:', key);
+      // Report completion
+      if (onProgress) {
+        onProgress({
+          loaded: buffer.length,
+          total: buffer.length,
+          percentage: 100,
+        });
+      }
+
+      console.log('Video uploaded successfully to S3');
       
       return {
         success: true,
-        key,
-        url,
+        key: 'uploaded-video',
+        url: presignedUrl.split('?')[0], // Return URL without query parameters
       };
     } catch (error) {
       console.error('Failed to upload video to S3:', error);
+      
+      // More detailed error logging
+      if (error instanceof Error) {
+        console.error('Error details:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        });
+      }
+      
+      // Provide specific error messages based on error type
+      let userFriendlyError = 'Unknown error occurred during upload';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('InvalidAccessKeyId')) {
+          userFriendlyError = 'Invalid AWS Access Key ID. Please check your credentials.';
+        } else if (error.message.includes('SignatureDoesNotMatch')) {
+          userFriendlyError = 'Invalid AWS Secret Access Key. Please check your credentials.';
+        } else if (error.message.includes('NoSuchBucket')) {
+          userFriendlyError = 'S3 bucket does not exist. Please check your bucket name.';
+        } else if (error.message.includes('AccessDenied')) {
+          userFriendlyError = 'Access denied to S3 bucket. Please check your permissions.';
+        } else if (error.message.includes('Network')) {
+          userFriendlyError = 'Network error. Please check your internet connection.';
+        } else if (error.message.includes('timeout')) {
+          userFriendlyError = 'Upload timeout. Please try again with a better connection.';
+        } else if (error.message.includes('File not found')) {
+          userFriendlyError = 'Video file not found. Please record a new video.';
+        } else if (error.message.includes('File is empty')) {
+          userFriendlyError = 'Video file is empty or corrupted. Please record a new video.';
+        } else {
+          userFriendlyError = error.message;
+        }
+      }
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: userFriendlyError,
       };
     }
   }
 
-  /**
-   * Get presigned URL for a file
-   */
-  static async getPresignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
-    try {
-      if (!this.s3Client || !this.config) {
-        throw new Error('AWS S3 service not initialized');
-      }
-
-      const command = new GetObjectCommand({
-        Bucket: this.config.bucketName,
-        Key: key,
-      });
-
-      const url = await getSignedUrl(this.s3Client, command, { expiresIn });
-      return url;
-    } catch (error) {
-      console.error('Failed to generate presigned URL:', error);
-      throw error;
-    }
-  }
 
   /**
    * Generate unique key for video upload
@@ -235,13 +366,148 @@ export class AWSS3Service {
   static async clearConfig(): Promise<void> {
     try {
       await AsyncStorage.removeItem('aws_s3_config');
-      this.s3Client = null;
       this.config = null;
       console.log('AWS S3 configuration cleared');
     } catch (error) {
       console.error('Failed to clear AWS S3 configuration:', error);
     }
   }
+
+  /**
+   * Quick fix common AWS issues
+   */
+  static async quickFix(): Promise<{
+    success: boolean;
+    message: string;
+    actions: string[];
+  }> {
+    const actions: string[] = [];
+    
+    try {
+      // Try to reload configuration
+      const config = await this.loadConfig();
+      if (config) {
+        actions.push('Configuration reloaded successfully');
+        
+        // Test connection
+        try {
+          const testResult = await this.testConnection();
+          if (testResult.success) {
+            actions.push('Connection test passed');
+            
+            return {
+              success: true,
+              message: 'AWS S3 is now working correctly!',
+              actions
+            };
+          } else {
+            actions.push('Connection test failed - check pre-signed URL');
+            
+            return {
+              success: false,
+              message: 'Configuration loaded but connection failed. Please check your pre-signed URL.',
+              actions
+            };
+          }
+        } catch (connectionError) {
+          actions.push('Connection test failed - check pre-signed URL');
+          
+          return {
+            success: false,
+            message: 'Configuration loaded but connection failed. Please check your pre-signed URL.',
+            actions
+          };
+        }
+      } else {
+        actions.push('No configuration found');
+        
+        return {
+          success: false,
+          message: 'No AWS configuration found. Please configure pre-signed URL first.',
+          actions
+        };
+      }
+    } catch (error) {
+      actions.push('Quick fix failed');
+      
+      return {
+        success: false,
+        message: 'Quick fix failed. Please check your configuration manually.',
+        actions
+      };
+    }
+  }
+
+
+  /**
+   * Initialize AWS S3 service in test mode for development/testing
+   */
+  static async initializeTestMode(): Promise<void> {
+    console.log('Initializing AWS S3 service in TEST MODE');
+    const testConfig: S3Config = {
+      presignedUrl: 'https://test-bucket.s3.us-east-1.amazonaws.com/test-upload',
+      testMode: true
+    };
+    
+    await this.initialize(testConfig);
+    console.log('AWS S3 service initialized in TEST MODE - ready for testing with pre-signed URLs');
+  }
+
+  /**
+   * Debug AWS configuration issues
+   */
+  static async debugConfiguration(): Promise<{
+    hasConfig: boolean;
+    configValid: boolean;
+    serviceInitialized: boolean;
+    details: any;
+  }> {
+    const details: any = {};
+    
+    try {
+      // Check if config exists in storage
+      const configString = await AsyncStorage.getItem('aws_s3_config');
+      details.hasConfigInStorage = !!configString;
+      
+      if (configString) {
+        try {
+          const config = JSON.parse(configString);
+          details.config = {
+            hasPresignedUrl: !!config.presignedUrl,
+            isTestMode: !!config.testMode,
+            presignedUrlLength: config.presignedUrl ? config.presignedUrl.length : 0
+          };
+          
+          // Validate config - only need pre-signed URL or test mode
+          details.configValid = !!(config.presignedUrl || config.testMode);
+        } catch (parseError) {
+          details.parseError = parseError instanceof Error ? parseError.message : 'Unknown parse error';
+          details.configValid = false;
+        }
+      }
+      
+      // Check service state
+      details.serviceInitialized = !!this.config;
+      details.hasConfig = !!this.config;
+      
+      return {
+        hasConfig: details.hasConfigInStorage,
+        configValid: details.configValid,
+        serviceInitialized: details.serviceInitialized,
+        details
+      };
+    } catch (error) {
+      details.error = error instanceof Error ? error.message : 'Unknown error';
+      return {
+        hasConfig: false,
+        configValid: false,
+        serviceInitialized: false,
+        details
+      };
+    }
+  }
 }
 
 export default AWSS3Service;
+
+

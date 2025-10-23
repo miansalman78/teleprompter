@@ -1,51 +1,45 @@
 # Teleprompter App 📱
 
-A professional teleprompter application built with React Native and Expo, designed for creating high-quality pitch videos and presentations with advanced permission management and user-friendly features.
+A professional teleprompter application built with React Native and Expo, designed for creating high-quality video presentations. This app features advanced video editing capabilities, script management, and a user-friendly interface.
 
-##  Features
+## ✨ Key Features
 
-### ✅ Core Functionality
-- **Video Recording**: High-quality video recording with camera and microphone integration
-- **Teleprompter Display**: Smooth scrolling text overlay during video recording
-- **Recording Modes**: Support for 1-minute and 3-minute recording sessions
-- **Permission Management**: Comprehensive camera and microphone permission handling
-- **Cross-Platform Support**: Works seamlessly on both Android and iOS devices
+### 📹 Video Creation & Editing
+- **Professional Recording**: Capture high-quality videos with integrated camera and microphone
+- **Teleprompter**: Smooth scrolling text overlay while recording
+- **Flexible Recording**: Support for various recording durations
+- **Video Editing**: Split, trim, and enhance your recordings
+- **Music Integration**: Add background music from our library
 
-### ✅ User Interface
-- **Modern UI Design**: Clean and intuitive interface with Material Icons
-- **Responsive Design**: Adaptive layout for different screen sizes
-- **Lottie Animations**: Smooth loading animations and visual feedback
-- **Real-time Controls**: Recording timer, pause/resume, and stop functionality
+### 🎨 User Experience
+- **Modern Interface**: Clean, intuitive design with responsive controls
+- **Real-time Preview**: See your changes instantly
+- **Smooth Animations**: Polished visual feedback throughout the app
+- **Cross-Platform**: Works seamlessly on both iOS and Android devices
 
-### ✅ Advanced Features
-- **Script Management**: Text input, editing, and clipboard paste functionality
-- **Font Controls**: Adjustable font size and scroll speed for teleprompter
-- **Camera Controls**: Front/back camera switching and aspect ratio toggle
-- **Orientation Support**: Seamless portrait and landscape mode switching
-- **Button Overlay**: Properly positioned Edit, Settings, and Rotate buttons
-- **Video Storage**: Local video storage with AsyncStorage integration
-- **AWS S3 Upload**: Complete AWS S3 integration with real upload functionality
-- **Offline Video Editing**: Full FFmpeg-kit integration for offline processing
-- **Error Handling**: Comprehensive error handling and user feedback
-- **EAS Updates**: Over-the-air updates for seamless app improvements
+### 🚀 Advanced Capabilities
+- **Script Management**: Create, edit, and organize your scripts
+- **Customization Options**: Adjust font size, scroll speed, and appearance
+- **Camera Controls**: Switch between front/back cameras and aspect ratios
+- **Orientation Support**: Work in both portrait and landscape modes
+- **Cloud Integration**: AWS S3 integration for secure storage
+- **Offline Editing**: Full video processing without internet connection
+- **Over-the-Air Updates**: Receive the latest features automatically
 
-### ✅ Permission System
-- **Automatic Permission Requests**: Smart permission checking on screen focus
-- **Permission Validation**: Multiple checkpoints before recording starts
-- **Retry Mechanism**: User-friendly retry options for denied permissions
-- **Settings Integration**: Guidance for manual permission enabling
-- **Real-time Status**: Live permission status indicators
+### 🔒 Smart Permissions
+- **Streamlined Access**: Intelligent permission handling
+- **User Guidance**: Clear instructions for enabling required permissions
+- **Status Indicators**: Real-time feedback on permission states
 
-### ✅ Technical Implementation
-- **Expo Camera Integration**: Full camera API utilization
-- **File System Management**: Efficient video file handling and cleanup
-- **Navigation**: React Navigation with proper routing
-- **State Management**: Efficient React hooks and context API
-- **Performance Optimization**: Smooth animations and responsive UI
+### 💻 Technical Excellence
+- **Optimized Performance**: Smooth playback and editing experience
+- **Efficient Storage**: Smart file management system
+- **Robust Navigation**: Intuitive app flow with React Navigation
+- **State Management**: Clean architecture using React hooks and context
 
-## 🛠️ Installation & Setup
+## 🛠️ Getting Started
 
-### Prerequisites
+### System Requirements
 - Node.js (v16 or higher)
 - npm or yarn
 - Expo CLI (`npm install -g @expo/cli`)

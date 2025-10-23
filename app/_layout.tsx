@@ -4,6 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { ScriptProvider } from '../contexts/ScriptContext';
 import { VolumeProvider } from '../contexts/VolumeContext';
+// Import polyfills for AWS SDK compatibility
+import '../utils/polyfills';
 
 export default function RootLayout() {
   const [loaded] = useFonts({
@@ -29,12 +31,6 @@ export default function RootLayout() {
           />
            <Stack.Screen
             name="screens/PreviewVideoShoot"
-            options={{
-              headerShown: false
-            }}
-          />
-          <Stack.Screen
-            name="screens/SettingsScreen"
             options={{
               headerShown: false
             }}

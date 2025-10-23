@@ -221,6 +221,25 @@ cameraButton: {
     flex: 1,
     backgroundColor: '#000',
   },
+  // Two-window layout styles
+  twoWindowContainer: {
+    flex: 1,
+    flexDirection: 'column',
+  },
+  teleprompterWindow: {
+    flex: 0.4, // 40% of screen height
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    borderBottomWidth: 2,
+    borderBottomColor: '#259B9A',
+    paddingTop: moderateScale(40),
+    paddingHorizontal: moderateScale(20),
+    paddingBottom: moderateScale(20),
+  },
+  cameraWindow: {
+    flex: 0.6, // 60% of screen height
+    backgroundColor: "#000",
+    position: 'relative',
+  },
   camera: {
     flex: 1,
     width: '100%',
@@ -336,15 +355,9 @@ cameraButton: {
     marginRight: moderateScale(15),
   },
   teleprompterOverlay: {
-    position: 'absolute',
-    top: moderateScale(40),
-    left: 0,
-    right: 0,
-    height: moderateScale(300),
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    borderRadius: 0,
-    padding: moderateScale(20),
-    paddingTop: moderateScale(40),
+    flex: 1,
+    backgroundColor: 'transparent',
+    padding: 0,
     zIndex: 500,
   },
   teleprompterLandscape: {
@@ -386,10 +399,11 @@ cameraButton: {
   },
   teleprompterText: {
     color: 'white',
-    textAlign: 'left',
-    lineHeight: moderateScale(28),
-    fontSize: moderateScale(18),
+    textAlign: 'center',
+    lineHeight: moderateScale(32),
+    fontSize: moderateScale(20),
     fontWeight: '400',
+    paddingHorizontal: moderateScale(10),
   },
   sideButton: {
     width: moderateScale(60),
@@ -457,9 +471,9 @@ cameraButton: {
   },
   cameraControlsBelow: {
     position: 'absolute',
-    top: moderateScale(350), // Position below teleprompter
-    left: -30,
-    right: -30,
+    top: moderateScale(20), // Position at top of camera window
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',

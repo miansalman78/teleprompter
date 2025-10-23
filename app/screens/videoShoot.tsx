@@ -512,7 +512,8 @@ const VideoShoot = () => {
         flaggedForUpload: true, // Flag for AWS upload
         uploaded: false, // Not uploaded yet
         title: `${recordingMode === '1min' ? '1-Minute Pitch' : '3-Minute Presentation'} recording`,
-        duration: recordingMode === '1min' ? 'Up to 1:00' : 'Up to 3:00'
+        duration: Math.floor(recordingTime / 1000), // Convert milliseconds to seconds
+        fileSize: 0 // Will be updated later if needed
       }
       
       // Add new video to the beginning of the array
@@ -534,7 +535,6 @@ const VideoShoot = () => {
 
   return (
     <View style={styles.fullScreenContainer}>
-      {/* Full Screen Camera */}
       {permissionLoading ? (
         <View style={styles.loadingContainer}>
           <Text style={[styles.permissionText, { marginBottom: 20 }]}>Checking permissions...</Text>
@@ -552,12 +552,337 @@ const VideoShoot = () => {
           </Text>
         </View>
       ) : hasAllPermissions() ? (
-        <CameraView
-          mode="video"
-          ref={cameraRef}
-          style={styles.camera}
-          facing={cameraFacing}
-        />
+        <View style={styles.twoWindowContainer}>
+          {/* Upper Window - Teleprompter */}
+          <View style={styles.teleprompterWindow}>
+            <TouchableOpacity
+              style={styles.teleprompterOverlay}
+              onLongPress={handleLongPress}
+              activeOpacity={0.8}
+            >
+              <ScrollView
+                ref={scrollViewRef}
+                style={styles.scrollView}
+                contentContainerStyle={styles.scrollContent}
+                scrollEnabled={false}
+                onContentSizeChange={onContentSizeChange}
+              >
+                <Animated.View style={{ transform: [{ translateY: scrollY }] }}>
+                  {showText && (
+                    <Text
+                      style={[
+                        styles.teleprompterText,
+                        { fontSize },
+                      ]}
+                    >
+                      {scriptText || "Write your script here"}
+                    </Text>
+                  )}
+                  {!showText && !showCountdown && (
+                    <Text
+                      style={[
+                        styles.teleprompterText,
+                        { fontSize: moderateScale(16) },
+                      ]}
+                    >
+                      {scriptText || "Write your script here"}
+                    </Text>
+                  )}
+                </Animated.View>
+              </ScrollView>
+              
+              {/* Edit Icon */}
+              <TouchableOpacity style={styles.editIcon} onPress={toggleEditModal}>
+                <MaterialIcons
+                  name="edit"
+                  size={moderateScale(20)}
+                  color="white"
+                />
+              </TouchableOpacity>
+              
+              {/* Settings Icon */}
+              <TouchableOpacity style={styles.settingsIcon} onPress={toggleSettings}>
+                <MaterialIcons
+                  name="settings"
+                  size={moderateScale(20)}
+                  color="white"
+                />
+              </TouchableOpacity>
+              
+              {/* Rotate Icon */}
+              <TouchableOpacity style={styles.rotateIcon} onPress={toggleTeleprompterOrientation}>
+                <MaterialIcons
+                  name="screen-rotation"
+                  size={moderateScale(20)}
+                  color="white"
+                />
+              </TouchableOpacity>
+              
+              {/* Settings Panel */}
+              {showSettings && (
+                <Animated.View
+                  style={[
+                    {
+                      position: 'absolute',
+                      top: moderateScale(50),
+                      right: moderateScale(10),
+                      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                      borderRadius: moderateScale(10),
+                      padding: moderateScale(15),
+                      minWidth: moderateScale(200),
+                    },
+                    {
+                      opacity: settingsAnim,
+                      transform: [
+                        {
+                          translateY: settingsAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-moderateScale(20), 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  {/* Font Size Controls */}
+                  <View style={{ marginBottom: moderateScale(15) }}>
+                    <Text style={{ color: 'white', fontSize: moderateScale(14), marginBottom: moderateScale(8) }}>
+                      Font Size
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <TouchableOpacity
+                        onPress={decreaseFontSize}
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                          borderRadius: moderateScale(20),
+                          width: moderateScale(35),
+                          height: moderateScale(35),
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <MaterialIcons name="remove" size={moderateScale(18)} color="white" />
+                      </TouchableOpacity>
+                      <Text style={{ color: 'white', fontSize: moderateScale(12), marginHorizontal: moderateScale(10) }}>
+                        {Math.round(fontSize)}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={increaseFontSize}
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                          borderRadius: moderateScale(20),
+                          width: moderateScale(35),
+                          height: moderateScale(35),
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <MaterialIcons name="add" size={moderateScale(18)} color="white" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={resetFontSize}
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                          borderRadius: moderateScale(15),
+                          paddingHorizontal: moderateScale(8),
+                          paddingVertical: moderateScale(4),
+                          marginLeft: moderateScale(10),
+                        }}
+                      >
+                        <Text style={{ color: 'white', fontSize: moderateScale(10) }}>Reset</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  
+                  {/* Speed Controls */}
+                  <View>
+                    <Text style={{ color: 'white', fontSize: moderateScale(14), marginBottom: moderateScale(8) }}>
+                      Scroll Speed
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setScrollSpeedMultiplier(prev => {
+                            const newSpeed = Math.max(prev - 0.5, 0.5);
+                            if (showText && contentHeight > 0) {
+                              setTimeout(() => startScrollAnimation(true), 100);
+                            }
+                            return newSpeed;
+                          });
+                        }}
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                          borderRadius: moderateScale(20),
+                          width: moderateScale(35),
+                          height: moderateScale(35),
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <MaterialIcons name="remove" size={moderateScale(18)} color="white" />
+                      </TouchableOpacity>
+                      <Text style={{ color: 'white', fontSize: moderateScale(12), marginHorizontal: moderateScale(10) }}>
+                        {scrollSpeedMultiplier}x
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setScrollSpeedMultiplier(prev => {
+                            const newSpeed = Math.min(prev + 0.5, 5);
+                            if (showText && contentHeight > 0) {
+                              setTimeout(() => startScrollAnimation(true), 100);
+                            }
+                            return newSpeed;
+                          });
+                        }}
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                          borderRadius: moderateScale(20),
+                          width: moderateScale(35),
+                          height: moderateScale(35),
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <MaterialIcons name="add" size={moderateScale(18)} color="white" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setScrollSpeedMultiplier(1);
+                          if (showText && contentHeight > 0) {
+                            setTimeout(() => startScrollAnimation(true), 100);
+                          }
+                        }}
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                          borderRadius: moderateScale(15),
+                          paddingHorizontal: moderateScale(8),
+                          paddingVertical: moderateScale(4),
+                          marginLeft: moderateScale(10),
+                        }}
+                      >
+                        <Text style={{ color: 'white', fontSize: moderateScale(10) }}>Reset</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </Animated.View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* Lower Window - Camera Preview */}
+          <View style={styles.cameraWindow}>
+            <CameraView
+              mode="video"
+              ref={cameraRef}
+              style={styles.camera}
+              facing={cameraFacing}
+            />
+            
+            {/* Camera Controls */}
+            <View style={styles.cameraControlsBelow}>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => router.back()}
+              >
+                <MaterialIcons
+                  name="close"
+                  size={moderateScale(24)}
+                  color="white"
+                />
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.cameraFlipButton}
+                onPress={toggleCameraFacing}
+              >
+                <MaterialIcons
+                  name="flip-camera-ios"
+                  size={moderateScale(24)}
+                  color="white"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Recording Controls */}
+            <View style={styles.recordingControlsBelow}>
+              <TouchableOpacity
+                style={styles.sideButton}
+                onPress={handleRestart}
+              >
+                <MaterialIcons
+                  name="refresh"
+                  size={moderateScale(24)}
+                  color="white"
+                />
+              </TouchableOpacity>
+              
+              {/* Pause/Resume Button (only show when recording) */}
+              {isRecording && (
+                <TouchableOpacity
+                  style={styles.pauseButton}
+                  onPress={handlePauseResume}
+                >
+                  <MaterialIcons 
+                    name={isPaused ? "play-arrow" : "pause"} 
+                    size={moderateScale(24)} 
+                    color="white" 
+                  />
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={styles.recordButton}
+                onPress={() => {
+                  if (!isRecording) {
+                    // Check permissions before starting countdown
+                    if (!hasAllPermissions()) {
+                      setPermissionError("Camera and microphone permissions are required for video recording")
+                      setShowPermissionDialog(true)
+                      return
+                    }
+                    startCountdown();
+                  } else {
+                    handleCameraButton();
+                  }
+                }}
+              >
+                {isRecording ? (
+                  <MaterialIcons
+                    name="stop"
+                    size={moderateScale(32)}
+                    color="white"
+                  />
+                ) : (
+                  <View style={[
+                    styles.recordButtonInner,
+                    { backgroundColor: "#FF0000" }
+                  ]} />
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.sideButton}
+                onPress={() => {
+                  // OK/Done functionality - navigate to preview if video exists
+                  if (recordedUri) {
+                    router.replace({
+                      pathname: "/screens/PreviewVideoShoot",
+                      params: { videoUri: recordedUri, orientation: cameraAspectRatio },
+                    });
+                  } else {
+                    router.back();
+                  }
+                }}
+              >
+                <MaterialIcons
+                  name="check"
+                  size={moderateScale(24)}
+                  color="white"
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       ) : (
         <View style={styles.permissionContainer}>
           <MaterialIcons
@@ -649,343 +974,20 @@ const VideoShoot = () => {
         </View>
       )}
 
-      {/* Top Controls - Only Timer */}
-      <View style={styles.topControls}>
-        {/* Recording Timer */}
-        {isRecording && (
-          <View style={styles.timerContainer}>
-            <View style={[styles.recordingDot, isPaused && styles.pausedDot]} />
-            <Text style={styles.timerText}>
-              {Math.floor(recordingTime / 60000).toString().padStart(2, '0')}:
-              {Math.floor((recordingTime % 60000) / 1000).toString().padStart(2, '0')}
-              {isPaused && ' (PAUSED)'}
-            </Text>
-            <Text style={styles.limitText}>
-              / {Math.floor(maxRecordingTime / 60000)}:00
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Teleprompter Overlay */}
-      <TouchableOpacity
-        style={[
-          teleprompterOrientation === 'landscape' ? styles.teleprompterLandscape : styles.teleprompterOverlay
-        ]}
-        onLongPress={handleLongPress}
-        activeOpacity={0.8}
-      >
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          scrollEnabled={false}
-          onContentSizeChange={onContentSizeChange}
-        >
-          <Animated.View style={{ transform: [{ translateY: scrollY }] }}>
-            {showText && (
-              <Text
-                style={[
-                  styles.teleprompterText,
-                  { fontSize },
-                ]}
-              >
-                {scriptText || "Write your script here"}
-              </Text>
-            )}
-            {!showText && !showCountdown && (
-              <Text
-                style={[
-                  styles.teleprompterText,
-                  { fontSize: moderateScale(16) },
-                ]}
-              >
-                {scriptText || "Write your script here"}
-              </Text>
-            )}
-          </Animated.View>
-        </ScrollView>
-        
-        {/* Edit Icon */}
-        <TouchableOpacity style={styles.editIcon} onPress={toggleEditModal}>
-          <MaterialIcons
-            name="edit"
-            size={moderateScale(20)}
-            color="white"
-          />
-        </TouchableOpacity>
-        
-        {/* Settings Icon */}
-        <TouchableOpacity style={styles.settingsIcon} onPress={toggleSettings}>
-          <MaterialIcons
-            name="settings"
-            size={moderateScale(20)}
-            color="white"
-          />
-        </TouchableOpacity>
-        
-        {/* Rotate Icon */}
-        <TouchableOpacity style={styles.rotateIcon} onPress={toggleTeleprompterOrientation}>
-          <MaterialIcons
-            name="screen-rotation"
-            size={moderateScale(20)}
-            color="white"
-          />
-        </TouchableOpacity>
-        
-        {/* Settings Panel */}
-        {showSettings && (
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                top: moderateScale(50),
-                right: moderateScale(10),
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                borderRadius: moderateScale(10),
-                padding: moderateScale(15),
-                minWidth: moderateScale(200),
-              },
-              {
-                opacity: settingsAnim,
-                transform: [
-                  {
-                    translateY: settingsAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [-moderateScale(20), 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            {/* Font Size Controls */}
-            <View style={{ marginBottom: moderateScale(15) }}>
-              <Text style={{ color: 'white', fontSize: moderateScale(14), marginBottom: moderateScale(8) }}>
-                Font Size
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <TouchableOpacity
-                  onPress={decreaseFontSize}
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    borderRadius: moderateScale(20),
-                    width: moderateScale(35),
-                    height: moderateScale(35),
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <MaterialIcons name="remove" size={moderateScale(18)} color="white" />
-                </TouchableOpacity>
-                <Text style={{ color: 'white', fontSize: moderateScale(12), marginHorizontal: moderateScale(10) }}>
-                  {Math.round(fontSize)}
-                </Text>
-                <TouchableOpacity
-                  onPress={increaseFontSize}
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    borderRadius: moderateScale(20),
-                    width: moderateScale(35),
-                    height: moderateScale(35),
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <MaterialIcons name="add" size={moderateScale(18)} color="white" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={resetFontSize}
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    borderRadius: moderateScale(15),
-                    paddingHorizontal: moderateScale(8),
-                    paddingVertical: moderateScale(4),
-                    marginLeft: moderateScale(10),
-                  }}
-                >
-                  <Text style={{ color: 'white', fontSize: moderateScale(10) }}>Reset</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            
-            {/* Speed Controls */}
-            <View>
-              <Text style={{ color: 'white', fontSize: moderateScale(14), marginBottom: moderateScale(8) }}>
-                Scroll Speed
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <TouchableOpacity
-                  onPress={() => {
-                    setScrollSpeedMultiplier(prev => {
-                      const newSpeed = Math.max(prev - 0.5, 0.5);
-                      if (showText && contentHeight > 0) {
-                        setTimeout(() => startScrollAnimation(true), 100);
-                      }
-                      return newSpeed;
-                    });
-                  }}
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    borderRadius: moderateScale(20),
-                    width: moderateScale(35),
-                    height: moderateScale(35),
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <MaterialIcons name="remove" size={moderateScale(18)} color="white" />
-                </TouchableOpacity>
-                <Text style={{ color: 'white', fontSize: moderateScale(12), marginHorizontal: moderateScale(10) }}>
-                  {scrollSpeedMultiplier}x
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    setScrollSpeedMultiplier(prev => {
-                      const newSpeed = Math.min(prev + 0.5, 5);
-                      if (showText && contentHeight > 0) {
-                        setTimeout(() => startScrollAnimation(true), 100);
-                      }
-                      return newSpeed;
-                    });
-                  }}
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    borderRadius: moderateScale(20),
-                    width: moderateScale(35),
-                    height: moderateScale(35),
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <MaterialIcons name="add" size={moderateScale(18)} color="white" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    setScrollSpeedMultiplier(1);
-                    if (showText && contentHeight > 0) {
-                      setTimeout(() => startScrollAnimation(true), 100);
-                    }
-                  }}
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    borderRadius: moderateScale(15),
-                    paddingHorizontal: moderateScale(8),
-                    paddingVertical: moderateScale(4),
-                    marginLeft: moderateScale(10),
-                  }}
-                >
-                  <Text style={{ color: 'white', fontSize: moderateScale(10) }}>Reset</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Animated.View>
-        )}
-      </TouchableOpacity>
-
-      {/* Camera Controls Below Teleprompter */}
-      <View style={styles.cameraControlsBelow}>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => router.back()}
-        >
-          <MaterialIcons
-            name="close"
-            size={moderateScale(24)}
-            color="white"
-          />
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={styles.cameraFlipButton}
-          onPress={toggleCameraFacing}
-        >
-          <MaterialIcons
-            name="flip-camera-ios"
-            size={moderateScale(24)}
-            color="white"
-          />
-        </TouchableOpacity>
-      </View>
-
-      {/* Recording Controls Below Camera Controls */}
-      <View style={styles.recordingControlsBelow}>
-        <TouchableOpacity
-          style={styles.sideButton}
-          onPress={handleRestart}
-        >
-          <MaterialIcons
-            name="refresh"
-            size={moderateScale(24)}
-            color="white"
-          />
-        </TouchableOpacity>
-        
-        {/* Pause/Resume Button (only show when recording) */}
-        {isRecording && (
-          <TouchableOpacity
-            style={styles.pauseButton}
-            onPress={handlePauseResume}
-          >
-            <MaterialIcons 
-              name={isPaused ? "play-arrow" : "pause"} 
-              size={moderateScale(24)} 
-              color="white" 
-            />
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={styles.recordButton}
-          onPress={() => {
-            if (!isRecording) {
-              // Check permissions before starting countdown
-              if (!hasAllPermissions()) {
-                setPermissionError("Camera and microphone permissions are required for video recording")
-                setShowPermissionDialog(true)
-                return
-              }
-              startCountdown();
-            } else {
-              handleCameraButton();
-            }
-          }}
-        >
-          {isRecording ? (
-            <MaterialIcons
-              name="stop"
-              size={moderateScale(32)}
-              color="white"
-            />
-          ) : (
-            <View style={[
-              styles.recordButtonInner,
-              { backgroundColor: "#FF0000" }
-            ]} />
-          )}
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={styles.sideButton}
-          onPress={() => {
-            // OK/Done functionality - navigate to preview if video exists
-            if (recordedUri) {
-              router.replace({
-                pathname: "/screens/PreviewVideoShoot",
-                params: { videoUri: recordedUri, orientation: cameraAspectRatio },
-              });
-            } else {
-              router.back();
-            }
-          }}
-        >
-          <MaterialIcons
-            name="check"
-            size={moderateScale(24)}
-            color="white"
-          />
-        </TouchableOpacity>
-      </View>
+      {/* Recording Timer - positioned in teleprompter window */}
+      {isRecording && (
+        <View style={[styles.timerContainer, { position: 'absolute', top: moderateScale(10), right: moderateScale(20), zIndex: 1000 }]}>
+          <View style={[styles.recordingDot, isPaused && styles.pausedDot]} />
+          <Text style={styles.timerText}>
+            {Math.floor(recordingTime / 60000).toString().padStart(2, '0')}:
+            {Math.floor((recordingTime % 60000) / 1000).toString().padStart(2, '0')}
+            {isPaused && ' (PAUSED)'}
+          </Text>
+          <Text style={styles.limitText}>
+            / {Math.floor(maxRecordingTime / 60000)}:00
+          </Text>
+        </View>
+      )}
 
       {/* Countdown Overlay */}
       {showCountdown && (

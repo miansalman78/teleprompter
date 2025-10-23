@@ -9,7 +9,7 @@ import { useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import LottieView from "lottie-react-native";
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Dimensions, Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Dimensions, Modal, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import StickerItem from "../../components/StickerItem";
 import TextItem from "../../components/TextItem";
@@ -19,18 +19,18 @@ import { useVolume } from '../../contexts/VolumeContext';
 
 // VideoEditor Components
 import VideoEditingTools from "../../components/VideoEditor/VideoEditingTools";
+import VideoTimeline from "../../components/VideoEditor/VideoTimeline";
 import BottomToolbar from "../components/VideoEditor/BottomToolbar";
 import StickerOverlay from "../components/VideoEditor/StickerOverlay";
 import TextOverlay from "../components/VideoEditor/TextOverlay";
 import TransitionOverlay from "../components/VideoEditor/TransitionOverlay";
-import VideoTimeline from "../components/VideoEditor/VideoTimeline";
 
 // Video Processing
 import AudioProcessor, { AudioMixOptions, AudioTrack } from "../../utils/audioProcessor";
 import VideoProcessor from "../../utils/videoProcessor";
 
 // AWS S3 Integration
-import AppConfigManager from "../../config/appConfig";
+import AppConfigManager, { AppConfig } from "../../config/appConfig";
 import AWSS3Service from "../../utils/awsS3Service";
 
 // Enhanced FFmpeg Service
@@ -59,10 +59,15 @@ const PreviewVideoShoot = () => {
   const [uploadStatus, setUploadStatus] = useState<'pending' | 'uploading' | 'completed' | 'failed'>('pending');
   const [currentVideoData, setCurrentVideoData] = useState<any>(null);
   const [showUploadToaster, setShowUploadToaster] = useState(false);
+  const [awsConfig, setAwsConfig] = useState({
+    presignedUrl: '',
+  });
+  const [config, setConfig] = useState<AppConfig>(AppConfigManager.getConfig());
 
   // Video Editor States
   const [showVideoEditor, setShowVideoEditor] = useState(false);
   const [activeEditorTool, setActiveEditorTool] = useState<'edit' | 'text' | 'stickers' | 'audio' | 'filters' | 'transitions' | null>(null);
+  
   
   // Text Overlay States
   const [textOverlays, setTextOverlays] = useState<Array<{
@@ -593,6 +598,7 @@ const PreviewVideoShoot = () => {
     loadVideoData();
     processVideoData();
     initializeServices();
+    checkAsyncStorageState();
     
     // Auto-initialize trim to full video duration (same as clicking trim "Done" button)
     if (videoUri) {
@@ -602,20 +608,68 @@ const PreviewVideoShoot = () => {
     }
   }, [videoUri]);
 
+  const checkAsyncStorageState = async () => {
+    try {
+      console.log('=== CHECKING ASYNC STORAGE STATE ===');
+      const savedVideos = await AsyncStorage.getItem('saved_videos');
+      if (savedVideos) {
+        const videos = JSON.parse(savedVideos);
+        console.log('Current videos in AsyncStorage:', videos.length);
+        console.log('Videos:', videos.map((v: any) => ({ id: v.id, uri: v.uri, title: v.title, lastEdited: v.lastEdited })));
+      } else {
+        console.log('No videos in AsyncStorage');
+      }
+      console.log('=== END ASYNC STORAGE CHECK ===');
+    } catch (error) {
+      console.error('Error checking AsyncStorage:', error);
+    }
+  };
+
   const initializeServices = async () => {
     try {
       // Initialize FFmpeg service
       await FFmpegService.initialize();
       
-      // Load AWS S3 configuration
-      await AppConfigManager.loadConfig();
-      await AWSS3Service.loadConfig();
+      // Initialize AWS S3 service in test mode for development
+      await AWSS3Service.initializeTestMode();
       
-      console.log('All services initialized successfully');
+      // Load app configuration
+      await AppConfigManager.loadConfig();
+      
+      // Load AWS config for the modal
+      await loadAwsConfig();
+      
+      console.log('All services initialized successfully - AWS S3 in TEST MODE');
     } catch (error) {
       console.error('Failed to initialize services:', error);
     }
   };
+
+  const loadAwsConfig = async () => {
+    try {
+      const config = await AWSS3Service.loadConfig();
+      if (config) {
+        setAwsConfig({
+          presignedUrl: config.presignedUrl || '',
+        });
+      }
+      const loadedConfig = await AppConfigManager.loadConfig();
+      setConfig(loadedConfig);
+    } catch (error) {
+      console.error('Failed to load AWS config:', error);
+    }
+  };
+
+  const handleFeatureToggle = async (feature: keyof AppConfig['features'], value: boolean) => {
+    try {
+      await AppConfigManager.updateFeatureFlags({ [feature]: value });
+      setConfig({ ...config, features: { ...config.features, [feature]: value } });
+    } catch (error) {
+      console.error('Failed to update feature flag:', error);
+      Alert.alert('Error', 'Failed to update feature setting');
+    }
+  };
+
 
   const initializeVideoTrim = async () => {
     const full = videoMetadata?.duration || player?.duration || 0;
@@ -642,10 +696,25 @@ const PreviewVideoShoot = () => {
           setCurrentVideoData(currentVideo);
           setFlaggedForUpload(currentVideo.flaggedForUpload || false);
           setUploadStatus(currentVideo.uploaded ? 'completed' : 'pending');
+        } else {
+          // For uploaded videos from gallery that don't exist in saved_videos yet
+          // Set default values and flag for upload
+          setCurrentVideoData(null);
+          setFlaggedForUpload(true); // Auto-flag uploaded videos for AWS upload
+          setUploadStatus('pending');
         }
+      } else {
+        // No saved videos, but this is an uploaded video from gallery
+        setCurrentVideoData(null);
+        setFlaggedForUpload(true); // Auto-flag uploaded videos for AWS upload
+        setUploadStatus('pending');
       }
     } catch (error) {
       console.error('Error loading video data:', error);
+      // Default for uploaded videos
+      setCurrentVideoData(null);
+      setFlaggedForUpload(true);
+      setUploadStatus('pending');
     }
   };
 
@@ -719,58 +788,89 @@ const PreviewVideoShoot = () => {
   const toggleUploadFlag = async () => {
     try {
       const savedVideos = await AsyncStorage.getItem('saved_videos');
-      if (savedVideos) {
-        const videos = JSON.parse(savedVideos);
-        const updatedVideos = videos.map((video: any) => {
-          if (video.uri === videoUri) {
-            return { ...video, flaggedForUpload: !flaggedForUpload };
-          }
-          return video;
-        });
-        await AsyncStorage.setItem('saved_videos', JSON.stringify(updatedVideos));
-        setFlaggedForUpload(!flaggedForUpload);
+      let videos = savedVideos ? JSON.parse(savedVideos) : [];
+      
+      // Check if video exists in the list
+      const videoIndex = videos.findIndex((video: any) => video.uri === videoUri);
+      
+      if (videoIndex !== -1) {
+        // Update existing video
+        videos[videoIndex] = { ...videos[videoIndex], flaggedForUpload: !flaggedForUpload };
+      } else {
+        // For uploaded videos that don't exist in the list yet, create a temporary entry
+        // This will be properly saved when the user approves the video
+        const tempVideo = {
+          id: `temp_${Date.now()}`,
+          uri: videoUri,
+          mode: 'uploaded',
+          createdAt: new Date().toISOString(),
+          flaggedForUpload: !flaggedForUpload,
+          uploaded: false,
+          title: 'Uploaded Video',
+          duration: videoMetadata?.duration || 0,
+          fileSize: 0
+        };
+        videos.unshift(tempVideo);
       }
+      
+      await AsyncStorage.setItem('saved_videos', JSON.stringify(videos));
+      setFlaggedForUpload(!flaggedForUpload);
     } catch (error) {
       console.error('Error updating upload flag:', error);
     }
   };
 
   const performAwsUpload = async () => {
-    if (!flaggedForUpload || !videoUri) return;
+    if (!flaggedForUpload || !videoUri) {
+      console.log('Upload skipped - not flagged or no video URI:', { flaggedForUpload, videoUri });
+      return;
+    }
+    
+    if (!awsConfig.presignedUrl) {
+      Alert.alert('Error', 'Pre-signed URL not configured. Please configure AWS settings first.');
+      return;
+    }
     
     try {
-      // Check if AWS is configured
-      const isConfigured = AppConfigManager.isAwsConfigured();
-      if (!isConfigured) {
-        Alert.alert(
-          'AWS Not Configured',
-          'Please configure AWS S3 settings first. Go to Settings to add your AWS credentials.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-
+      console.log('Starting AWS upload process...');
       setUploadStatus('uploading');
       
       // Generate unique key for the video
       const videoId = Date.now().toString();
-      const mode = route.params?.mode || '1min';
-      const s3Key = AWSS3Service.generateVideoKey(videoId, mode);
+      const mode = (route.params as any)?.mode || '1min';
+      
+      console.log('Generated upload key:', videoId);
+      
+      // Validate video file exists and is accessible
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(videoUri);
+        if (!fileInfo.exists) {
+          throw new Error('Video file not found or not accessible');
+        }
+        console.log('Video file validated:', { exists: fileInfo.exists, size: fileInfo.size });
+      } catch (fileError) {
+        console.error('Video file validation failed:', fileError);
+        throw new Error('Video file validation failed. Please ensure the video file is accessible.');
+      }
       
       // Update video status to uploading
       await AWSS3Service.updateVideoUploadStatus(videoId, 'uploading');
       
-      // Upload to S3 with progress tracking
+      // Upload to S3 with progress tracking using pre-signed URL
+      console.log('Calling AWSS3Service.uploadVideo...');
       const uploadResult = await AWSS3Service.uploadVideo(
         videoUri,
-        s3Key,
+        awsConfig.presignedUrl,
         (progress) => {
-          console.log(`Upload progress: ${progress.percentage}%`);
+          console.log(`Upload progress: ${progress.percentage}% (${progress.loaded}/${progress.total} bytes)`);
           // You can update UI with progress here if needed
         }
       );
       
+      console.log('Upload result:', uploadResult);
+      
       if (uploadResult.success) {
+        console.log('Upload successful, updating status...');
         // Update video status to completed
         await AWSS3Service.updateVideoUploadStatus(
           videoId,
@@ -786,6 +886,7 @@ const PreviewVideoShoot = () => {
           [{ text: 'OK' }]
         );
       } else {
+        console.log('Upload failed:', uploadResult.error);
         // Update video status to failed
         await AWSS3Service.updateVideoUploadStatus(
           videoId,
@@ -799,7 +900,10 @@ const PreviewVideoShoot = () => {
         Alert.alert(
           'Upload Failed',
           `Failed to upload video: ${uploadResult.error}`,
-          [{ text: 'OK' }]
+          [
+            { text: 'Retry', onPress: () => performAwsUpload() },
+            { text: 'Cancel', style: 'cancel' }
+          ]
         );
       }
     } catch (error) {
@@ -807,8 +911,11 @@ const PreviewVideoShoot = () => {
       setUploadStatus('failed');
       Alert.alert(
         'Upload Error',
-        'An unexpected error occurred during upload. Please try again.',
-        [{ text: 'OK' }]
+        `An unexpected error occurred during upload: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        [
+          { text: 'Retry', onPress: () => performAwsUpload() },
+          { text: 'Cancel', style: 'cancel' }
+        ]
       );
     }
   };
@@ -824,18 +931,38 @@ const PreviewVideoShoot = () => {
       setTimeout(async () => {
         try {
           const savedVideos = await AsyncStorage.getItem('saved_videos');
-          if (savedVideos) {
-            const videos = JSON.parse(savedVideos);
-            const updatedVideos = videos.map((video: any) => {
-              if (video.uri === videoUri) {
-                return { ...video, uploaded: true, uploadedAt: new Date().toISOString() };
-              }
-              return video;
-            });
-            await AsyncStorage.setItem('saved_videos', JSON.stringify(updatedVideos));
-            setUploadStatus('completed');
-            console.log("✅ Video uploaded successfully");
+          let videos = savedVideos ? JSON.parse(savedVideos) : [];
+          
+          // Check if video already exists in the list
+          const existingVideoIndex = videos.findIndex((video: any) => video.uri === videoUri);
+          
+          if (existingVideoIndex !== -1) {
+            // Update existing video
+            videos[existingVideoIndex] = { 
+              ...videos[existingVideoIndex], 
+              uploaded: true, 
+              uploadedAt: new Date().toISOString() 
+            };
+          } else {
+            // Add new video to the list (for uploaded videos from gallery)
+            const newVideo = {
+              id: Date.now().toString(),
+              uri: videoUri,
+              mode: 'uploaded', // Mark as uploaded video
+              createdAt: new Date().toISOString(),
+              flaggedForUpload: true, // Flag for AWS upload
+              uploaded: true,
+              uploadedAt: new Date().toISOString(),
+              title: 'Uploaded Video',
+              duration: videoMetadata?.duration || 0, // Use actual video duration
+              fileSize: 0 // Will be updated if needed
+            };
+            videos.unshift(newVideo); // Add to beginning of list
           }
+          
+          await AsyncStorage.setItem('saved_videos', JSON.stringify(videos));
+          setUploadStatus('completed');
+          console.log("✅ Video uploaded successfully");
         } catch (error) {
           console.error('Error updating upload status:', error);
           setUploadStatus('failed');
@@ -945,8 +1072,12 @@ const PreviewVideoShoot = () => {
                 );
                 
                 if (outputPath) {
+                  // Store the original video URI before updating
+                  const originalVideoUri = videoUri;
+                  
                   // Update video URI to the new mixed version
                   setVideoUri(outputPath);
+                  await updateVideoInStorage(outputPath, originalVideoUri);
                   Alert.alert(
                     'Success', 
                     `Music "${selectedTrack.name}" has been added to your video successfully!`,
@@ -991,7 +1122,11 @@ const PreviewVideoShoot = () => {
                 );
                 
                 if (outputPath) {
+                  // Store the original video URI before updating
+                  const originalVideoUri = videoUri;
+                  
                   setVideoUri(outputPath);
+                  await updateVideoInStorage(outputPath, originalVideoUri);
                   Alert.alert(
                     'Success',
                     `Volume adjusted to ${Math.round(newVolume * 100)}%`,
@@ -1181,25 +1316,125 @@ const PreviewVideoShoot = () => {
 
   const executeFFmpegCommand = async (command: string, successMessage: string) => {
     try {
-      console.log('Executing FFmpeg command:', command);
+      console.log('=== EXECUTING FFMPEG COMMAND ===');
+      console.log('Command:', command);
+      console.log('Current videoUri before processing:', videoUri);
       
       const result = await FFmpegService.executeCommand(command, (progress) => {
         console.log('FFmpeg progress:', progress);
       });
       
-      if (result.success) {
+      if (result.success && result.outputPath) {
+        console.log('✅ FFmpeg command successful');
+        console.log('Output path:', result.outputPath);
+        
+        // Store the original video URI before updating
+        const originalVideoUri = videoUri;
+        console.log('Original video URI stored:', originalVideoUri);
+        
+        // Update the video URI to point to the edited video
+        setVideoUri(result.outputPath);
+        console.log('Video URI state updated to:', result.outputPath);
+        
+        // Update storage with the original video URI for lookup
+        console.log('Calling updateVideoInStorage...');
+        await updateVideoInStorage(result.outputPath, originalVideoUri);
+        
         Alert.alert('Success', successMessage);
         console.log('FFmpeg command executed successfully');
-        return true;
+        return result.outputPath;
       } else {
-        console.error('FFmpeg failed:', result.error);
+        console.error('❌ FFmpeg failed:', result.error);
         Alert.alert('Error', `Video processing failed: ${result.error}`);
-        return false;
+        return null;
       }
     } catch (error) {
-      console.error('FFmpeg execution error:', error);
+      console.error('❌ FFmpeg execution error:', error);
       Alert.alert('Error', 'Video processing failed.');
-      return false;
+      return null;
+    }
+  };
+
+  const updateVideoInStorage = async (newVideoUri: string, originalVideoUri?: string) => {
+    try {
+      console.log('=== UPDATING VIDEO IN STORAGE ===');
+      console.log('New video URI:', newVideoUri);
+      console.log('Original video URI:', originalVideoUri || videoUri);
+      
+      const savedVideos = await AsyncStorage.getItem('saved_videos');
+      if (savedVideos) {
+        const videos = JSON.parse(savedVideos);
+        console.log('Total videos in storage:', videos.length);
+        console.log('Videos in storage:', videos.map((v: any) => ({ id: v.id, uri: v.uri, title: v.title })));
+        
+        // Use originalVideoUri if provided, otherwise use current videoUri
+        const searchUri = originalVideoUri || videoUri;
+        console.log('Searching for video with URI:', searchUri);
+        
+        const videoIndex = videos.findIndex((video: any) => video.uri === searchUri);
+        console.log('Video found at index:', videoIndex);
+        
+        if (videoIndex !== -1) {
+          console.log('Found existing video, updating URI...');
+          // Update the existing video with the new edited URI
+          videos[videoIndex].uri = newVideoUri;
+          videos[videoIndex].lastEdited = new Date().toISOString();
+          
+          await AsyncStorage.setItem('saved_videos', JSON.stringify(videos));
+          console.log('✅ Video URI updated in AsyncStorage:', newVideoUri);
+          console.log('Updated video:', videos[videoIndex]);
+          
+          // Verify the update was successful
+          const verifyVideos = await AsyncStorage.getItem('saved_videos');
+          const verifyParsed = JSON.parse(verifyVideos || '[]');
+          console.log('Verification - Videos after update:', verifyParsed.map((v: any) => ({ id: v.id, uri: v.uri, title: v.title })));
+        } else {
+          console.log('❌ Video not found in storage, creating new entry');
+          // If video not found, create a new entry
+          const newVideo = {
+            id: Date.now().toString(),
+            uri: newVideoUri,
+            mode: 'edited',
+            createdAt: new Date().toISOString(),
+            flaggedForUpload: false,
+            uploaded: false,
+            title: 'Edited Video',
+            duration: 0, // Will be updated when video metadata is loaded
+            fileSize: 0,
+            lastEdited: new Date().toISOString()
+          };
+          
+          videos.unshift(newVideo);
+          await AsyncStorage.setItem('saved_videos', JSON.stringify(videos));
+          console.log('✅ New edited video added to storage:', newVideo);
+          
+          // Verify the new video was added
+          const verifyVideos = await AsyncStorage.getItem('saved_videos');
+          const verifyParsed = JSON.parse(verifyVideos || '[]');
+          console.log('Verification - Videos after adding new:', verifyParsed.map((v: any) => ({ id: v.id, uri: v.uri, title: v.title })));
+        }
+      } else {
+        console.log('❌ No videos found in AsyncStorage');
+        // Create a new video entry even if no videos exist
+        const newVideo = {
+          id: Date.now().toString(),
+          uri: newVideoUri,
+          mode: 'edited',
+          createdAt: new Date().toISOString(),
+          flaggedForUpload: false,
+          uploaded: false,
+          title: 'Edited Video',
+          duration: 0,
+          fileSize: 0,
+          lastEdited: new Date().toISOString()
+        };
+        
+        await AsyncStorage.setItem('saved_videos', JSON.stringify([newVideo]));
+        console.log('✅ Created first video in storage:', newVideo);
+      }
+      console.log('=== END UPDATE VIDEO IN STORAGE ===');
+    } catch (error) {
+      console.error('❌ Error updating video in storage:', error);
     }
   };
 
@@ -1829,9 +2064,9 @@ const PreviewVideoShoot = () => {
               ))}
             </View>
 
-            {/* Video Timeline - CapCut Style */}
-            <VideoTimeline 
-              videoDuration={(() => {
+            {/* Video Timeline - CapCut Style (with trim handles) */}
+            <VideoTimeline
+              duration={(() => {
                 if (segments.length > 0) return sumSegmentsDuration();
                 const full = getFullDuration();
                 const start = trimStartSec || 0;
@@ -1857,6 +2092,28 @@ const PreviewVideoShoot = () => {
                   player.currentTime = absoluteTime;
                 }
               }}
+              onTrimStart={(time) => {
+                const full = getFullDuration();
+                const end = (trimEndSec ?? full);
+                const start = Math.max(0, Math.min(time, end));
+                setTrimStartSec(start);
+                setSegments(normalizeSegments([{ start, end }]));
+                if (player) {
+                  player.currentTime = start;
+                }
+              }}
+              onTrimEnd={(time) => {
+                const full = getFullDuration();
+                const start = trimStartSec || 0;
+                const end = Math.max(start, Math.min(time, full));
+                setTrimEndSec(end);
+                setSegments(normalizeSegments([{ start, end }]));
+                if (player) {
+                  player.currentTime = start;
+                }
+              }}
+              trimStart={(trimStartSec || 0)}
+              trimEnd={(trimEndSec ?? getFullDuration())}
               videoFrames={videoFrames}
               isLoading={isLoadingVideo}
             />
@@ -1969,7 +2226,39 @@ const PreviewVideoShoot = () => {
               </TouchableOpacity>
             </View>
             
-            <View style={styles.toasterBody}>
+            <ScrollView 
+              style={styles.toasterBody} 
+              contentContainerStyle={styles.toasterBodyContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Pre-signed URL Input */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Pre-signed URL</Text>
+                <TextInput
+                  style={styles.input}
+                  value={awsConfig.presignedUrl}
+                  onChangeText={(text) => setAwsConfig({ ...awsConfig, presignedUrl: text })}
+                  placeholder="https://your-bucket.s3.region.amazonaws.com/upload?X-Amz-Algorithm=..."
+                  placeholderTextColor="#666"
+                  multiline
+                  numberOfLines={3}
+                />
+              </View>
+
+              {/* Upload Control Section */}
+              <View style={styles.uploadSection}>
+                <Text style={styles.sectionTitle}>Upload Control</Text>
+                
+                <View style={styles.uploadRow}>
+                  <Text style={styles.uploadLabel}>Enable AWS Upload:</Text>
+                  <Switch
+                    value={config.features.enableAwsUpload}
+                    onValueChange={(value) => handleFeatureToggle('enableAwsUpload', value)}
+                    trackColor={{ false: '#767577', true: '#259B9A' }}
+                    thumbColor={config.features.enableAwsUpload ? '#f4f3f4' : '#f4f3f4'}
+                  />
+                </View>
+                
               <View style={styles.uploadRow}>
                 <Text style={styles.uploadLabel}>Flag for AWS Upload:</Text>
                 <Switch
@@ -1987,6 +2276,7 @@ const PreviewVideoShoot = () => {
                   <Text style={styles.statusText}>{getStatusText()}</Text>
                 </View>
               </View>
+
               
               {flaggedForUpload && uploadStatus === 'pending' && (
                 <TouchableOpacity 
@@ -2021,9 +2311,11 @@ const PreviewVideoShoot = () => {
                 </View>
               )}
             </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
+
 
       {/* Video Editor Modal */}
       <Modal
@@ -2465,10 +2757,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: moderateScale(12),
+    paddingVertical: moderateScale(15),
     paddingHorizontal: moderateScale(20),
-    borderRadius: moderateScale(8),
-    marginTop: moderateScale(10),
+    borderRadius: moderateScale(10),
+    marginTop: moderateScale(15),
+    marginBottom: moderateScale(10),
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   uploadButtonText: {
     color: "white",
@@ -2524,9 +2822,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a1a1a",
     borderTopLeftRadius: moderateScale(20),
     borderTopRightRadius: moderateScale(20),
-    paddingBottom: moderateScale(30),
-    maxHeight: "85%",
-    minHeight: "50%",
+    maxHeight: "80%",
+    minHeight: "60%",
   },
   toasterHeader: {
     flexDirection: "row",
@@ -2543,10 +2840,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   toasterBody: {
+    flex: 1,
+    maxHeight: moderateScale(500),
+  },
+  toasterBodyContent: {
     paddingHorizontal: moderateScale(20),
     paddingTop: moderateScale(20),
-    flex: 1,
-    minHeight: moderateScale(200),
+    paddingBottom: moderateScale(30),
+    flexGrow: 1,
   },
  
    textOverlay: {
@@ -2574,6 +2875,46 @@ const styles = StyleSheet.create({
      borderBottomWidth: 1,
      borderBottomColor: "rgba(255, 255, 255, 0.1)",
    },
+  // Input Styles
+  inputGroup: {
+    marginBottom: moderateScale(15),
+  },
+  inputLabel: {
+    fontSize: moderateScale(14),
+    color: "#ccc",
+    marginBottom: moderateScale(5),
+  },
+  input: {
+    backgroundColor: "#333",
+    borderRadius: moderateScale(8),
+    padding: moderateScale(12),
+    color: "white",
+    fontSize: moderateScale(16),
+    borderWidth: 1,
+    borderColor: "#444",
+  },
+  sectionTitle: {
+    fontSize: moderateScale(16),
+    fontWeight: "600",
+    color: "white",
+    marginBottom: moderateScale(15),
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: moderateScale(20),
+    borderBottomWidth: 1,
+    borderBottomColor: "#444",
+  },
+  modalTitle: {
+    color: "#fff",
+    fontSize: moderateScale(18),
+    fontWeight: "600",
+  },
+  closeButton: {
+    padding: moderateScale(4),
+  },
  
 });
 

@@ -3,13 +3,12 @@ import { MaterialIcons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import React, { useMemo, useState } from 'react';
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import VideoTimeline from './VideoTimeline';
 
 interface VideoEditingToolsProps {
   videoUri: string;
@@ -116,23 +115,8 @@ export default function VideoEditingTools({
       
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Trim Controls */}
-        <VideoTimeline
-        duration={clampedDuration}
-        currentTime={currentTime}
-        onTimeChange={setCurrentTime}
-        onTrimStart={setTrimStart}
-        onTrimEnd={setTrimEnd}
-        trimStart={trimStart}
-        trimEnd={trimEnd}
-      />
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Trim</Text>
-          <TouchableOpacity style={styles.primaryButton} onPress={handleTrimDone}>
-            <MaterialIcons name="done" size={24} color="white" />
-            <Text style={styles.primaryButtonText}>Done</Text>
-          </TouchableOpacity>
-        </View>
+  
+       
 
       {/* Split Controls */}
       <View style={styles.section}>
