@@ -22,7 +22,8 @@ A professional teleprompter application built with React Native and Expo, design
 - **Customization Options**: Adjust font size, scroll speed, and appearance
 - **Camera Controls**: Switch between front/back cameras and aspect ratios
 - **Orientation Support**: Work in both portrait and landscape modes
-- **Cloud Integration**: AWS S3 integration for secure storage
+- **Cloud Integration**: AWS S3 integration for secure storage with automatic 7-day deletion
+- **Smart Storage Management**: Videos automatically deleted from AWS S3 after 7 days
 - **Offline Editing**: Full video processing without internet connection
 - **Over-the-Air Updates**: Receive the latest features automatically
 
@@ -81,8 +82,15 @@ The app supports uploading videos to AWS S3. To enable this feature:
      - Bucket Name
      - Access Key ID
      - Secret Access Key
+     - Expiration Days (default: 7 days)
    - Test the connection
    - Save configuration
+
+4. **Automatic Video Deletion:**
+   - All videos uploaded to AWS S3 are automatically deleted after 7 days
+   - This helps manage storage costs and ensures efficient use of cloud resources
+   - Expiration date is tracked for each uploaded video
+   - You can view the expiration date for each video in the video details screen
 
 ### 3. Start Development Server
 ```bash

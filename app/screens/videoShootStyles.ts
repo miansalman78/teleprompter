@@ -1,43 +1,55 @@
 import { Dimensions, StyleSheet } from "react-native"
+import {
+    getDeviceType,
+    getResponsiveBorderRadius,
+    getResponsiveFontSize,
+    getResponsiveLayout,
+    getResponsivePadding,
+    getResponsiveScale,
+    getResponsiveSpacing,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH
+} from "../../utils/enhancedResponsive"
 import { moderateScale, scale, verticalScale } from "../../utils/scaling"
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window")
+const { width: SCREEN_WIDTH_OLD, height: SCREEN_HEIGHT_OLD } = Dimensions.get("window")
 const isMobile = SCREEN_WIDTH < 500
+const device = getDeviceType()
+const layout = getResponsiveLayout()
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: isMobile ? moderateScale(12) : moderateScale(20),
-    
+    padding: getResponsivePadding(device.isTablet ? 24 : 16),
   },
   videoContainer: {
-    width: isMobile? "100%": "70%",
+    width: device.isTablet ? "80%" : "100%",
     justifyContent: "space-between",
     alignItems: "center",
-     // Column for mobile, row for tablet
+    maxWidth: device.isTablet ? 800 : SCREEN_WIDTH,
   },
   videoView: {
-    borderRadius: isMobile? moderateScale(10): moderateScale(5),
+    borderRadius: getResponsiveBorderRadius(device.isTablet ? 15 : 10),
     justifyContent: "center",
     alignItems: "center",
-    marginVertical: isMobile ? verticalScale(10) : verticalScale(10),
-    width: "100%", // Full width for mobile, half for tablet
+    marginVertical: getResponsiveSpacing(device.isTablet ? 15 : 10),
+    width: "100%",
     position: "relative",
-    maxWidth: SCREEN_WIDTH * 0.95,
-    maxHeight: isMobile ? SCREEN_HEIGHT * 0.8 : SCREEN_HEIGHT * 0.5, // Slightly larger for tablet
+    maxWidth: device.isTablet ? Math.min(SCREEN_WIDTH * 0.8, 800) : SCREEN_WIDTH * 0.95,
+    maxHeight: device.isTablet ? SCREEN_HEIGHT * 0.6 : SCREEN_HEIGHT * 0.8,
   },
   aspectRatio16_12: {
-    aspectRatio: isMobile ? 16 / 12 : 16 / 9, // Taller aspect ratio for mobile
+    aspectRatio: device.isTablet ? 16 / 9 : 16 / 12, // Better aspect ratio for tablets
     zIndex: 2,
   },
   text: {
     fontWeight: "400",
     textAlign: "center",
-    lineHeight: isMobile ? moderateScale(45) : moderateScale(50),
-    paddingHorizontal: isMobile ? scale(20) : scale(30),
-    fontSize: isMobile ? moderateScale(16) : moderateScale(20), // Larger text for tablet
+    lineHeight: getResponsiveFontSize(device.isTablet ? 50 : 45),
+    paddingHorizontal: getResponsivePadding(device.isTablet ? 30 : 20),
+    fontSize: getResponsiveFontSize(device.isTablet ? 20 : 16), // Responsive text size
   },
   controlsContainer: {
     position: "absolute",
@@ -188,20 +200,19 @@ cameraButton: {
     zIndex: 100,
   },
   recordButton: {
-    width: moderateScale(80),
-    height: moderateScale(80),
-    borderRadius: moderateScale(40),
+    width: getResponsiveScale(device.isTablet ? 80 : 70),
+    height: getResponsiveScale(device.isTablet ? 80 : 70),
+    borderRadius: getResponsiveBorderRadius(device.isTablet ? 40 : 35),
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: moderateScale(20),
-    borderWidth: 4,
+    borderWidth: device.isTablet ? 5 : 4,
     borderColor: 'white',
   },
   recordButtonInner: {
-    width: moderateScale(50),
-    height: moderateScale(50),
-    borderRadius: moderateScale(25),
+    width: getResponsiveScale(device.isTablet ? 50 : 40),
+    height: getResponsiveScale(device.isTablet ? 50 : 40),
+    borderRadius: getResponsiveBorderRadius(device.isTablet ? 25 : 20),
   },
   contentContainer: {
     flex: 1,
@@ -346,13 +357,12 @@ cameraButton: {
     marginLeft: moderateScale(4),
   },
   pauseButton: {
-    width: moderateScale(50),
-    height: moderateScale(50),
-    borderRadius: moderateScale(25),
+    width: getResponsiveScale(device.isTablet ? 70 : 60),
+    height: getResponsiveScale(device.isTablet ? 70 : 60),
+    borderRadius: getResponsiveBorderRadius(device.isTablet ? 35 : 30),
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: moderateScale(15),
   },
   teleprompterOverlay: {
     flex: 1,
@@ -386,6 +396,18 @@ cameraButton: {
     alignItems: 'center',
   },
 
+  settingsIcon: {
+    position: 'absolute',
+    bottom: moderateScale(15),
+    left: moderateScale(15), // Opposite side of rotate icon
+    width: moderateScale(28),
+    height: moderateScale(28),
+    borderRadius: moderateScale(14),
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
   rotateIcon: {
     position: 'absolute',
     bottom: moderateScale(15),
@@ -406,9 +428,9 @@ cameraButton: {
     paddingHorizontal: moderateScale(10),
   },
   sideButton: {
-    width: moderateScale(60),
-    height: moderateScale(60),
-    borderRadius: moderateScale(30),
+    width: getResponsiveScale(device.isTablet ? 70 : 60),
+    height: getResponsiveScale(device.isTablet ? 70 : 60),
+    borderRadius: getResponsiveBorderRadius(device.isTablet ? 35 : 30),
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -482,14 +504,15 @@ cameraButton: {
   },
   recordingControlsBelow: {
     position: 'absolute',
-    bottom: moderateScale(30), // Position at bottom like original bottom controls
+    bottom: moderateScale(80), // Moved buttons up from bottom
     left: 0,
     right: 0,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center', // Center the buttons
     alignItems: 'center',
     paddingHorizontal: moderateScale(40),
     zIndex: 700,
+    gap: moderateScale(20), // Add consistent spacing between buttons
   },
 })
 

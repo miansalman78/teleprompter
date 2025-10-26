@@ -3,16 +3,17 @@ import { MaterialIcons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import React, { useMemo, useState } from 'react';
 import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
 interface VideoEditingToolsProps {
   videoUri: string;
   videoDuration: number;
+  currentTime?: number; // Current playback time
   splitTime?: number;
   onSplitTimeChange?: (t: number) => void;
   keptLeft?: boolean;
@@ -32,6 +33,7 @@ interface VideoEditingToolsProps {
 export default function VideoEditingTools({ 
   videoUri,
   videoDuration,
+  currentTime = 0,
   splitTime: splitTimeProp,
   onSplitTimeChange,
   keptLeft,
@@ -51,7 +53,6 @@ export default function VideoEditingTools({
   
   // Timeline state
   const clampedDuration = useMemo(() => Math.max(0, videoDuration || 0), [videoDuration]);
-  const [currentTime, setCurrentTime] = useState(0);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(clampedDuration);
   // Split card state (single cut slider)
@@ -66,6 +67,18 @@ export default function VideoEditingTools({
     const start = Math.max(0, Math.min(trimStart, clampedDuration));
     const end = Math.max(start, Math.min(trimEnd, clampedDuration));
     await onConfirmTrim(start, end);
+  };
+
+  const handleSetTrimStartToCurrent = () => {
+    const newTrimStart = Math.max(0, Math.min(currentTime, clampedDuration));
+    setTrimStart(newTrimStart);
+    console.log('Trim start set to current time:', newTrimStart);
+  };
+
+  const handleSetTrimEndToCurrent = () => {
+    const newTrimEnd = Math.max(trimStart, Math.min(currentTime, clampedDuration));
+    setTrimEnd(newTrimEnd);
+    console.log('Trim end set to current time:', newTrimEnd);
   };
 
   const handleSplit = () => {
@@ -117,6 +130,74 @@ export default function VideoEditingTools({
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
   
        
+
+      {/* Trim Controls */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Trim Video</Text>
+        
+        {/* Current Time Display */}
+        <View style={{ marginBottom: moderateScale(12) }}>
+          <Text style={{ color: 'white', marginBottom: moderateScale(6) }}>
+            Current Time: {currentTime.toFixed(2)}s
+          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: moderateScale(12) }}>
+            Trim: {trimStart.toFixed(2)}s - {trimEnd.toFixed(2)}s (Duration: {(trimEnd - trimStart).toFixed(2)}s)
+          </Text>
+        </View>
+
+        {/* Trim Controls */}
+        <View style={{ flexDirection: 'row', gap: moderateScale(8), marginBottom: moderateScale(12) }}>
+          <TouchableOpacity 
+            style={[styles.toolButton, { flex: 1 }]} 
+            onPress={handleSetTrimStartToCurrent}
+          >
+            <MaterialIcons name="play-arrow" size={20} color="white" />
+            <Text style={styles.toolButtonText}>Set Start</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.toolButton, { flex: 1 }]} 
+            onPress={handleSetTrimEndToCurrent}
+          >
+            <MaterialIcons name="stop" size={20} color="white" />
+            <Text style={styles.toolButtonText}>Set End</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Manual Trim Controls */}
+        <View style={{ marginBottom: moderateScale(12) }}>
+          <Text style={{ color: 'white', marginBottom: moderateScale(6) }}>Start: {trimStart.toFixed(2)}s</Text>
+          <Slider
+            minimumValue={0}
+            maximumValue={trimEnd}
+            value={trimStart}
+            step={0.01}
+            minimumTrackTintColor="#259B9A"
+            maximumTrackTintColor="rgba(255,255,255,0.2)"
+            thumbTintColor="#259B9A"
+            onValueChange={(value) => setTrimStart(value)}
+          />
+        </View>
+
+        <View style={{ marginBottom: moderateScale(12) }}>
+          <Text style={{ color: 'white', marginBottom: moderateScale(6) }}>End: {trimEnd.toFixed(2)}s</Text>
+          <Slider
+            minimumValue={trimStart}
+            maximumValue={clampedDuration}
+            value={trimEnd}
+            step={0.01}
+            minimumTrackTintColor="#259B9A"
+            maximumTrackTintColor="rgba(255,255,255,0.2)"
+            thumbTintColor="#259B9A"
+            onValueChange={(value) => setTrimEnd(value)}
+          />
+        </View>
+
+        <TouchableOpacity style={styles.primaryButton} onPress={handleTrimDone}>
+          <MaterialIcons name="content-cut" size={24} color="white" />
+          <Text style={styles.primaryButtonText}>Apply Trim</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Split Controls */}
       <View style={styles.section}>

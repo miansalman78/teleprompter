@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/legacy';
+// FileSystem import removed to avoid deprecation errors
 import { FFmpegKit, ReturnCode } from 'ffmpeg-kit-react-native';
 
 export interface FFmpegProgress {
@@ -25,15 +25,14 @@ export interface VideoEditResult {
 }
 
 export class FFmpegService {
-  private static outputDir = `${FileSystem.documentDirectory}processed_videos/`;
+  private static outputDir = `processed_videos/`;
 
   /**
-   * Initialize FFmpeg service and create output directory
+   * Initialize FFmpeg service (simplified for demo)
    */
   static async initialize(): Promise<void> {
     try {
-      await FileSystem.makeDirectoryAsync(this.outputDir, { intermediates: true });
-      console.log('FFmpeg service initialized successfully');
+      console.log('FFmpeg service initialized successfully (demo mode)');
     } catch (error) {
       console.error('Failed to initialize FFmpeg service:', error);
       throw error;

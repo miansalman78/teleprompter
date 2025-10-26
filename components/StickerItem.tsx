@@ -12,11 +12,13 @@ interface StickerItemProps {
     size: number;
     rotation: number;
     isSelected: boolean;
+    timestamp?: number; // Timestamp in seconds when the sticker appears
   };
   onSelect: (id: string) => void;
   onRemove: (id: string) => void;
   onResize: (id: string, size: number) => void;
   onPositionUpdate: (id: string, x: number, y: number) => void;
+  onTimestampUpdate?: (id: string, timestamp: number) => void; // New callback for updating timestamp
   screenWidth: number;
   styles: any;
 }
@@ -27,9 +29,15 @@ const StickerItem: React.FC<StickerItemProps> = ({
   onRemove,
   onResize,
   onPositionUpdate,
+  onTimestampUpdate,
   screenWidth,
-  styles
+  styles,
+  currentTime = 0, // Add current video time
+  editMode = false // Add edit mode flag
 }) => {
+  // Show sticker only when current time matches the timestamp (with a small tolerance)
+  const isVisible = editMode || sticker.timestamp === undefined || 
+                   Math.abs((sticker.timestamp || 0) - currentTime) < 0.5;
   const translateX = useSharedValue(sticker.x);
   const translateY = useSharedValue(sticker.y);
   const scale = useSharedValue(1);
@@ -98,6 +106,11 @@ const StickerItem: React.FC<StickerItemProps> = ({
 
   const composedGesture = Gesture.Simultaneous(panGesture, pinchGesture, doubleTap);
 
+  // If not visible and not in edit mode, don't render
+  if (!isVisible && !editMode) {
+    return null;
+  }
+
   return (
     <GestureDetector gesture={composedGesture}>
       <Animated.View
@@ -107,6 +120,7 @@ const StickerItem: React.FC<StickerItemProps> = ({
             borderWidth: sticker.isSelected ? 2 : 0,
             borderColor: sticker.isSelected ? '#259B9A' : 'transparent',
             borderRadius: sticker.isSelected ? 8 : 0,
+            opacity: editMode && !isVisible ? 0.5 : 1, // Show faded in edit mode if not at current time
           },
           animatedStyle
         ]}

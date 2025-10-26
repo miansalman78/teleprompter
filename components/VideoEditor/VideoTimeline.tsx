@@ -44,6 +44,17 @@ export default function VideoTimeline({
       duration
     });
   }, [showTrimUI, trimStart, trimEnd, trackWidthState, duration]);
+
+  // Debug: Log videoFrames changes
+  useEffect(() => {
+    console.log('🎬 VideoTimeline videoFrames updated:', {
+      frameCount: videoFrames.length,
+      duration,
+      trimStart,
+      trimEnd,
+      frameSamples: videoFrames.slice(0, 3).map(f => ({ uri: f ? f.substring(0, 50) + '...' : 'empty' }))
+    });
+  }, [videoFrames, duration, trimStart, trimEnd]);
   const pxPerSecond = moderateScale(60);
   const frameGapPx = 0; // No gap between frames
   const markersScrollRef = useRef<ScrollView>(null);
@@ -63,12 +74,17 @@ export default function VideoTimeline({
 
   const getPositionFromTime = (time: number) => {
     if (trackWidthState === 0 || duration === 0) return 0;
-    return (time / duration) * trackWidthState;
+    // For trimmed videos, the time should be relative to the trimmed duration
+    // If we have trim info, adjust the time calculation
+    const adjustedTime = trimStart > 0 ? Math.max(0, time - trimStart) : time;
+    return (adjustedTime / duration) * trackWidthState;
   };
   
   const getPositionPercentage = (time: number) => {
     if (duration === 0) return 0;
-    return (time / duration) * 100;
+    // For trimmed videos, the time should be relative to the trimmed duration
+    const adjustedTime = trimStart > 0 ? Math.max(0, time - trimStart) : time;
+    return (adjustedTime / duration) * 100;
   };
   // Animated shared values store pixel positions
   const trimStartX = useSharedValue(0);
@@ -76,8 +92,14 @@ export default function VideoTimeline({
 
   // Sync initial values when layout or props change
   useEffect(() => {
-    const startPx = getPositionFromTime(trimStart);
-    const endPx = getPositionFromTime(trimEnd);
+    // For trimmed videos, the trim markers should be positioned relative to the trimmed timeline
+    // If we have a trim start > 0, the trim markers should start at 0 (beginning of trimmed timeline)
+    // The end marker should be at the end of the trimmed timeline (full width)
+    const startPx = trimStart > 0 ? 0 : getPositionFromTime(trimStart);
+    const endPx = trimStart > 0 ? trackWidthState : getPositionFromTime(trimEnd);
+    
+    console.log(`🎯 Trim marker positioning: trimStart=${trimStart}, trimEnd=${trimEnd}, startPx=${startPx}, endPx=${endPx}, duration=${duration}, trackWidthState=${trackWidthState}`);
+    
     trimStartX.value = startPx;
     trimEndX.value = endPx;
   }, [trackWidthState, trimStart, trimEnd, duration]);
@@ -261,18 +283,37 @@ export default function VideoTimeline({
           {!isLoading && (
             <View style={[styles.framesContainer, { width: trackWidthState }] }>
               {Array.from({ length: Math.max(1, Math.ceil(duration)) }).map((_, i) => {
-                const leftPx = i * pxPerSecond;
+                // For trimmed videos, position thumbnails relative to the trimmed timeline
+                // For normal videos, use the original positioning logic
+                const timeInSeconds = i; // Time in seconds for this thumbnail
+                const leftPx = trimStart > 0 ? (i * pxPerSecond) : getPositionFromTime(timeInSeconds);
                 const widthPx = pxPerSecond; // Full width, no gap
+                
+                // For trimmed video, use direct frame mapping since frames are already for the trimmed portion
                 const frameIndex = videoFrames.length > 0
-                  ? Math.min(videoFrames.length - 1, Math.floor((i / Math.max(1, duration)) * videoFrames.length))
+                  ? Math.min(videoFrames.length - 1, i) // Direct mapping for trimmed frames
                   : -1;
                 const uri = frameIndex >= 0 ? videoFrames[frameIndex] : undefined;
+                
+                console.log(`Thumbnail ${i}: timeInSeconds=${timeInSeconds}, leftPx=${leftPx}, frameIndex=${frameIndex}, uri=${uri ? 'exists' : 'missing'}, duration=${duration}, trimStart=${trimStart}, trimEnd=${trimEnd}`);
+                
+                // For trimmed videos, always show thumbnails since they're already trimmed
+                // The frames array contains only the trimmed portion
+                const shouldShowThumbnail = true; // Always show for trimmed videos
+                
                 return (
                   <View
                     key={`sec-${i}`}
-                    style={[styles.perSecondFrame, { left: leftPx, width: widthPx }]}
+                    style={[
+                      styles.perSecondFrame, 
+                      { 
+                        left: leftPx, 
+                        width: widthPx,
+                        opacity: shouldShowThumbnail ? 1 : 0.3
+                      }
+                    ]}
                   >
-                    {uri ? (
+                    {uri && shouldShowThumbnail ? (
                       <Image source={{ uri }} style={styles.frameThumbnail} resizeMode="cover" />
                     ) : (
                       <View style={styles.framePlaceholder} />
@@ -291,12 +332,18 @@ export default function VideoTimeline({
           )}
           
            {/* Second interval markers on track - every second */}
-           {Array.from({ length: Math.ceil(duration) + 1 }, (_, i) => (
-             <View
-               key={`track-marker-${i}`}
-               style={[styles.trackMarker, { left: i * pxPerSecond }]}
-             />
-           ))}
+           {Array.from({ length: Math.ceil(duration) + 1 }, (_, i) => {
+             const timeInSeconds = i;
+             // For trimmed videos, position markers relative to the trimmed timeline
+             // For normal videos, use the original positioning logic
+             const leftPx = trimStart > 0 ? (i * pxPerSecond) : getPositionFromTime(timeInSeconds);
+             return (
+               <View
+                 key={`track-marker-${i}`}
+                 style={[styles.trackMarker, { left: leftPx }]}
+               />
+             );
+           })}
           
           {/* Trim UI */}
           {showTrimUI && (
@@ -338,7 +385,19 @@ export default function VideoTimeline({
           <View 
             style={[
               styles.playhead,
-              { left: (Math.max(0, Math.min(1, duration === 0 ? 0 : currentTime / duration)) * trackWidthState) }
+              { 
+                left: (() => {
+                  // For trimmed videos, currentTime is already relative to the trimmed timeline
+                  // So we can use it directly without subtracting trimStart
+                  const playheadPosition = trimStart > 0 
+                    ? Math.max(0, Math.min(trackWidthState, currentTime * pxPerSecond))
+                    : getPositionFromTime(currentTime);
+                  
+                  console.log(`🎯 Playhead positioning: currentTime=${currentTime}, trimStart=${trimStart}, playheadPosition=${playheadPosition}, trackWidthState=${trackWidthState}`);
+                  
+                  return playheadPosition;
+                })()
+              }
             ]}
           >
             <View style={styles.playheadLine} />
