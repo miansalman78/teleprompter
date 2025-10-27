@@ -225,26 +225,6 @@ const PreviewVideoShoot = () => {
   useEvent(player, 'statusChange', {
     status: player.status,
   });
-  
-  // Update currentTime when video is playing
-  useEffect(() => {
-    if (!player) return;
-    
-    const updateInterval = setInterval(() => {
-      if (player.status === 'PLAYING') {
-        const currentVideoDuration = player.currentTime || 0;
-        setCurrentTime(currentVideoDuration);
-        
-        // Always update video duration to ensure it's accurate
-        if (player.duration && player.duration > 0) {
-          setVideoDuration(player.duration);
-          console.log('Updated video duration:', player.duration);
-        }
-      }
-    }, 50); // Update every 50ms for smooth timeline movement
-    
-    return () => clearInterval(updateInterval);
-  }, [player]);
 
   // Function to handle audio duration synchronization (optimized with debounce)
   const handleAudioDurationSync = async () => {
@@ -685,22 +665,20 @@ const PreviewVideoShoot = () => {
         setAwsConfig({
           presignedUrl: config.presignedUrl,
         });
+        console.log('Loaded AWS configuration with pre-signed URL');
       } else {
-        // For testing purposes, generate a test pre-signed URL
-        const testUrl = AWSS3Service.generateTestPresignedUrl('test-video.mp4');
+        // No configuration found - user needs to add a pre-signed URL
         setAwsConfig({
-          presignedUrl: testUrl,
+          presignedUrl: '',
         });
-        console.log('Using test pre-signed URL for development');
+        console.log('No AWS configuration found. Please configure a pre-signed URL in settings.');
       }
       const loadedConfig = await AppConfigManager.loadConfig();
       setConfig(loadedConfig);
     } catch (error) {
       console.error('Failed to load AWS config:', error);
-      // Fallback to test URL
-      const testUrl = AWSS3Service.generateTestPresignedUrl('test-video.mp4');
       setAwsConfig({
-        presignedUrl: testUrl,
+        presignedUrl: '',
       });
     }
   };
@@ -871,20 +849,28 @@ const PreviewVideoShoot = () => {
       return;
     }
     
-    // Always ensure we have a pre-signed URL (use test URL if none configured)
+    // Check if we have a pre-signed URL configured
     let presignedUrl = awsConfig.presignedUrl;
-    if (!presignedUrl) {
-      presignedUrl = AWSS3Service.generateTestPresignedUrl('video.mp4');
-      console.log('Using test pre-signed URL for upload');
+    if (!presignedUrl || presignedUrl.trim() === '') {
+      Alert.alert(
+        'Pre-signed URL Required',
+        'Please configure a real AWS S3 pre-signed URL in the AWS Upload Settings.\n\n' +
+        'To get a pre-signed URL:\n' +
+        '1. Use AWS SDK on your backend server\n' +
+        '2. Generate a pre-signed URL with proper AWS credentials\n' +
+        '3. Enter the URL in the settings above',
+        [{ text: 'OK' }]
+      );
+      return;
     }
+    
+    // Generate unique key for the video
+    const videoId = Date.now().toString();
     
     try {
       console.log('Starting AWS upload process...');
       setUploadStatus('uploading');
       setUploadProgress(0);
-      
-      // Generate unique key for the video
-      const videoId = Date.now().toString();
       const mode = (route.params as any)?.mode || '1min';
       
       console.log('Generated upload key:', videoId);
@@ -919,43 +905,70 @@ const PreviewVideoShoot = () => {
       
       console.log('Upload result:', uploadResult);
       
-      // Always show success for demo purposes
-      console.log('Upload completed, updating status...');
-      // Update video status to completed
-      await AWSS3Service.updateVideoUploadStatus(
-        videoId,
-        'completed',
-        uploadResult.key || 'test-key',
-        uploadResult.url || presignedUrl.split('?')[0]
-      );
-      
-      setUploadStatus('completed');
-      setUploadProgress(100);
-      
-      // Show success message
-      Alert.alert(
-        'Upload Successful',
-        'Video uploaded to AWS S3 successfully!',
-        [{ text: 'OK' }]
-      );
+      // Check if upload was successful
+      if (uploadResult.success) {
+        console.log('Upload completed successfully, updating status...');
+        // Update video status to completed
+        await AWSS3Service.updateVideoUploadStatus(
+          videoId,
+          'completed',
+          uploadResult.key || 'test-key',
+          uploadResult.url || presignedUrl.split('?')[0],
+          undefined,
+          100,
+          uploadResult.expiresAt
+        );
+        
+        setUploadStatus('completed');
+        setUploadProgress(100);
+        
+        // Show success message
+        Alert.alert(
+          'Upload Successful',
+          `Video uploaded to AWS S3 successfully!\n${uploadResult.expiresAt ? `\nVideo will expire on: ${new Date(uploadResult.expiresAt).toLocaleString()}` : ''}`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        // Upload failed
+        console.error('Upload failed:', uploadResult.error);
+        await AWSS3Service.updateVideoUploadStatus(
+          videoId,
+          'failed',
+          undefined,
+          undefined,
+          uploadResult.error,
+          0
+        );
+        
+        setUploadStatus('failed');
+        setUploadProgress(0);
+        
+        Alert.alert(
+          'Upload Failed',
+          `Failed to upload video to AWS S3: ${uploadResult.error}`,
+          [{ text: 'OK' }]
+        );
+      }
     } catch (error) {
       console.error('AWS upload error:', error);
       
-      // Even if there's an error, show success for demo purposes
-      const videoId = Date.now().toString();
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
       await AWSS3Service.updateVideoUploadStatus(
         videoId,
-        'completed',
-        'test-key',
-        'https://test-bucket.s3.amazonaws.com/test-video.mp4'
+        'failed',
+        undefined,
+        undefined,
+        errorMessage,
+        0
       );
       
-      setUploadStatus('completed');
-      setUploadProgress(100);
+      setUploadStatus('failed');
+      setUploadProgress(0);
       
       Alert.alert(
-        'Upload Successful',
-        'Video uploaded to AWS S3 successfully!',
+        'Upload Failed',
+        `Failed to upload video to AWS S3: ${errorMessage}`,
         [{ text: 'OK' }]
       );
     }
@@ -2101,8 +2114,6 @@ const PreviewVideoShoot = () => {
                   onPositionUpdate={handleStickerPositionUpdate}
                   screenWidth={SCREEN_WIDTH}
                   styles={styles}
-                  currentTime={currentTime}
-                  editMode={activeEditorTool === 'stickers'}
                 />
               ))}
             </View>
@@ -2276,16 +2287,36 @@ const PreviewVideoShoot = () => {
             >
               {/* Pre-signed URL Input */}
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Pre-signed URL</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                  <Text style={styles.inputLabel}>Pre-signed URL (REQUIRED)</Text>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      const instructions = AWSS3Service.getPresignedUrlInstructions();
+                      Alert.alert('How to Get Pre-signed URL', instructions, [
+                        { text: 'OK' }
+                      ]);
+                    }}
+                  >
+                    <Text style={{ color: '#259B9A', fontSize: 12 }}>📖 Instructions</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.inputHelpText}>
+                  Enter a valid AWS S3 pre-signed URL. See instructions for how to generate one.
+                </Text>
                 <TextInput
                   style={styles.input}
                   value={awsConfig.presignedUrl}
                   onChangeText={(text) => setAwsConfig({ ...awsConfig, presignedUrl: text })}
-                  placeholder="https://your-bucket.s3.region.amazonaws.com/upload?X-Amz-Algorithm=..."
+                  placeholder="https://your-bucket.s3.region.amazonaws.com/user-uploads/filename.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=...&X-Amz-Expires=3600&X-Amz-Signature=..."
                   placeholderTextColor="#666"
                   multiline
-                  numberOfLines={3}
+                  numberOfLines={4}
                 />
+                {!awsConfig.presignedUrl && (
+                  <Text style={styles.warningText}>
+                    ⚠️ No pre-signed URL configured. Uploads will fail. See instructions above.
+                  </Text>
+                )}
               </View>
 
               {/* Upload Control Section */}
@@ -2358,6 +2389,25 @@ const PreviewVideoShoot = () => {
                   <Text style={styles.failedText}>Upload Failed</Text>
                 </View>
               )}
+              
+              {/* Save Configuration Button */}
+              <TouchableOpacity 
+                style={[styles.uploadButton, { marginTop: 20 }]} 
+                onPress={async () => {
+                  try {
+                    await AWSS3Service.saveConfig({
+                      presignedUrl: awsConfig.presignedUrl,
+                      expirationDays: 7,
+                    });
+                    Alert.alert('Success', 'AWS configuration saved successfully');
+                  } catch (error) {
+                    Alert.alert('Error', 'Failed to save configuration');
+                  }
+                }}
+              >
+                <MaterialIcons name="save" size={20} color="white" />
+                <Text style={styles.uploadButtonText}>Save Configuration</Text>
+              </TouchableOpacity>
             </View>
             </ScrollView>
           </View>
@@ -2487,10 +2537,6 @@ const PreviewVideoShoot = () => {
               {activeEditorTool === 'stickers' && (
                 <StickerOverlay
                   onAddSticker={handleStickerAdd}
-                  videoDuration={getFullDuration()}
-                  currentTime={currentTime}
-                  onTimeChange={(time) => setCurrentTime(time)}
-                  onAddImage={(imageUri, width, height, timestamp) => handleImageAdd(imageUri, width, height, timestamp)}
                 />
               )}
               
@@ -2956,6 +3002,13 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
     color: "#ccc",
     marginBottom: moderateScale(5),
+    fontWeight: "600",
+  },
+  inputHelpText: {
+    fontSize: moderateScale(12),
+    color: "#999",
+    marginBottom: moderateScale(8),
+    fontStyle: "italic",
   },
   input: {
     backgroundColor: "#333",
@@ -2965,6 +3018,12 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     borderWidth: 1,
     borderColor: "#444",
+  },
+  warningText: {
+    fontSize: moderateScale(12),
+    color: "#F44336",
+    marginTop: moderateScale(5),
+    fontWeight: "500",
   },
   sectionTitle: {
     fontSize: moderateScale(16),
